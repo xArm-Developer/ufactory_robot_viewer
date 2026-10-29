@@ -25,6 +25,7 @@ npm run dev
 [Cloudflare Pages Git 集成](https://developers.cloudflare.com/pages/get-started/git-integration/)支持私有 GitHub 仓库和生产分支自动部署。项目参数：
 
 - 仓库：`DanielWang123321/uf_robots`，生产分支：`main`。
+- Pages 项目：`uf-robots`，地址：`https://uf-robots.pages.dev`。
 - 构建命令：`npm run build`；构建输出：`dist`；根目录：仓库根目录。
 - Node 版本：`24.13.0`，可通过 Pages 环境变量 `NODE_VERSION` 固定；仓库也提供 `.nvmrc`。
 

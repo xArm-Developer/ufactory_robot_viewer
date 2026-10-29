@@ -12,3 +12,4 @@
 - 已创建并核实 GitHub 私有仓库 `DanielWang123321/uf_robots`；Cloudflare Pages Git 授权、公开部署及自动部署验证进行中。
 - 本地生产预览中，URDF、七个 GLB、Draco WASM 及包装器均返回 HTTP 200。
 - 补充桌面鼠标旋转、滚轮缩放、右键平移及视角复位的浏览器测试；修复复位时未消除阻尼余量导致视角漂移。截图复位对比中，仅约 0.04% 像素色差超过 5，测试容许上限为 0.5%；新增测试通过。
+- 创建 Cloudflare Pages 项目 `uf-robots`，Git 来源为私有仓库 `DanielWang123321/uf_robots` 的 `main`；生产分支自动部署已启用，构建命令 `npm run build`、输出 `dist`，Node 版本 `24.13.0`。准备通过推送验证实际部署。
