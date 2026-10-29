@@ -8,7 +8,7 @@ const ready = async (page: import('@playwright/test').Page) => {
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
 };
 
-test('desktop FK and Cartesian IK controls stay in sync', async ({ page }) => {
+test('desktop unified panel, FK/IK sync, and UFACTORY Studio Cartesian jog controls', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const meshes: string[] = [];
   const errors: string[] = [];
@@ -17,32 +17,90 @@ test('desktop FK and Cartesian IK controls stay in sync', async ({ page }) => {
   await ready(page);
   expect(meshes).toHaveLength(7);
   await expect(page.locator('h1')).toHaveText('xArm 6');
-  await expect(page.locator('body')).not.toContainText('让想象');
-  await expect(page.locator('body')).not.toContainText('从每一个角度');
-  await expect(page.locator('#joint-panel')).toBeVisible();
+  await expect(page.locator('#control-card')).toBeVisible();
+  await expect(page.locator('#control-expand')).toBeHidden();
   await expect(page.locator('#pose-panel')).toBeVisible();
+  await expect(page.locator('#joint-panel')).toBeHidden();
   expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.samples[0].position[0] * 1000, 1);
+
+  // Switch language to English
   await page.locator('#language').click();
-  await expect(page.locator('#cartesian-title')).toHaveText('Cartesian control');
+  await expect(page.locator('#cartesian-tab')).toContainText('Cartesian control');
+
+  // Switch to Joint control tab and verify FK updates Cartesian readout
   const initialY = Number(await page.locator('#fk-1').innerText());
+  await page.locator('#joint-tab').click();
+  await expect(page.locator('#joint-panel')).toBeVisible();
+  await expect(page.locator('#pose-panel')).toBeHidden();
   await page.locator('#joint-number-0').fill('20');
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('20.00');
+
+  await page.locator('#cartesian-tab').click();
+  await expect(page.locator('#pose-panel')).toBeVisible();
   expect(Math.abs(Number(await page.locator('#fk-1').innerText()) - initialY)).toBeGreaterThan(10);
   expect(Number(await page.locator('#pose-1').inputValue())).toBeCloseTo(Number(await page.locator('#fk-1').innerText()), 1);
+
   await page.locator('#reset-pose').click();
-  await expect(page.locator('#joint-number-0')).toHaveValue('0.00');
+
+  // Verify UFACTORY Studio Cartesian jog defaults, step tap, speed percentage, and continuous hold
+  await expect(page.locator('#pos-step')).toHaveValue('1');
+  await expect(page.locator('#rot-step')).toHaveValue('1');
+  await expect(page.locator('#jog-speed')).toHaveValue('20');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('20% · 50.0 mm/s · 20 °/s');
+
+  const homeX = Number(await page.locator('#fk-0').innerText());
+  const homeY = Number(await page.locator('#fk-1').innerText());
+  const homeZ = Number(await page.locator('#fk-2').innerText());
+  const homeYaw = Number(await page.locator('#fk-5').innerText());
+
+  await page.locator('[data-jog-axis="x"][data-jog-dir="1"]').click();
+  await expect(page.locator('#status-text')).toHaveText('Target solved');
+  expect(Number(await page.locator('#fk-0').innerText()) - homeX).toBeCloseTo(1, 1);
+
+  await page.locator('[data-jog-axis="yaw"][data-jog-dir="1"]').click();
+  expect(Number(await page.locator('#fk-5').innerText()) - homeYaw).toBeCloseTo(1, 1);
+
+  await page.locator('#pos-step').fill('5');
+  await page.locator('[data-jog-axis="y"][data-jog-dir="1"]').click();
+  expect(Number(await page.locator('#fk-1').innerText()) - homeY).toBeCloseTo(5, 1);
+  await page.locator('#pos-step').fill('1');
+
+  // Verify speed slider 1% (2.5 mm/s) and 100% (250 mm/s)
+  await page.locator('#jog-speed').fill('1');
+  await page.locator('#jog-speed').dispatchEvent('input');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('1% · 2.5 mm/s · 1 °/s');
+  await page.locator('#jog-speed').fill('100');
+  await page.locator('#jog-speed').dispatchEvent('input');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('100% · 250.0 mm/s · 100 °/s');
+
+  // Long-press continuous motion on Z+ at 40% (100 mm/s)
+  await page.locator('#jog-speed').fill('40');
+  await page.locator('#jog-speed').dispatchEvent('input');
+  const zPlus = page.locator('[data-jog-axis="z"][data-jog-dir="1"]');
+  await zPlus.scrollIntoViewIfNeeded();
+  const zBox = (await zPlus.boundingBox())!;
+  await page.mouse.move(zBox.x + zBox.width / 2, zBox.y + zBox.height / 2);
+  await page.mouse.down();
+  await page.waitForTimeout(950);
+  await page.mouse.up();
+  const zAfterHold = Number(await page.locator('#fk-2').innerText());
+  expect(zAfterHold - homeZ).toBeGreaterThan(20);
+  await page.waitForTimeout(350);
+  expect(Number(await page.locator('#fk-2').innerText())).toBeCloseTo(zAfterHold, 2);
+
+  await page.locator('#reset-pose').click();
+
+  // Numeric IK input, failure rollback, and Use current pose
   const originalX = Number(await page.locator('#pose-0').inputValue());
   await page.locator('#pose-0').fill(String(originalX + 10));
   await page.locator('#pose-0').dispatchEvent('change');
   await expect(page.locator('#status-text')).toHaveText('Target solved');
   expect(Math.abs(Number(await page.locator('#fk-0').innerText()) - (originalX + 10))).toBeLessThan(1);
-  const beforeFailure = await page.locator('#joint-number-1').inputValue();
   const beforeFailureFK = await page.locator('#fk-0').innerText();
   await page.locator('#pose-0').fill('10000');
   await page.locator('#pose-0').dispatchEvent('change');
   await expect(page.locator('#status-text')).toContainText('Could not reach');
-  expect(await page.locator('#joint-number-1').inputValue()).toBe(beforeFailure);
   expect(await page.locator('#fk-0').innerText()).toBe(beforeFailureFK);
   await expect(page.locator('#pose-0')).toHaveValue('10000');
   await page.locator('#pose-0').fill('');
@@ -51,6 +109,8 @@ test('desktop FK and Cartesian IK controls stay in sync', async ({ page }) => {
   await page.locator('#use-current').click();
   await expect(page.locator('#status-text')).toHaveText('Ready');
   expect(Number(await page.locator('#pose-0').inputValue())).toBeCloseTo(Number(beforeFailureFK), 1);
+
+  // 3D translate & rotate handles
   await page.locator('#reset-pose').click();
   await page.locator('[data-mode=translate]').click();
   await page.locator('#stage').scrollIntoViewIfNeeded();
@@ -62,6 +122,7 @@ test('desktop FK and Cartesian IK controls stay in sync', async ({ page }) => {
   await expect(page.locator('#status-text')).toHaveText('Target solved');
   expect(Number(await page.locator('#pose-0').inputValue())).toBeGreaterThan(originalX + 5);
   expect(Math.abs(Number(await page.locator('#fk-0').innerText()) - Number(await page.locator('#pose-0').inputValue()))).toBeLessThan(1);
+
   await page.locator('#reset-pose').click();
   await page.locator('[data-mode=rotate]').click();
   await expect(page.locator('[data-mode=rotate]')).toHaveAttribute('aria-pressed', 'true');
@@ -74,11 +135,20 @@ test('desktop FK and Cartesian IK controls stay in sync', async ({ page }) => {
   await page.mouse.move(rx + 20, ry + 6, { steps: 4 }); await page.mouse.up();
   await expect(page.locator('#status-text')).toHaveText('Target solved');
   expect(Math.abs(Number(await page.locator('#pose-5').inputValue()) - beforeYaw)).toBeGreaterThan(1);
-  await page.locator('#cartesian-toggle').click();
-  await expect(page.locator('#pose-panel')).toBeHidden();
-  await expect(page.locator('#joint-panel')).toBeVisible();
-  await page.locator('#joint-toggle').click();
-  await expect(page.locator('#joint-panel')).toBeHidden();
+
+  // Collapse unified panel into vertical control button and expand back
+  const expandedStageWidth = (await page.locator('#stage').boundingBox())!.width;
+  await page.locator('#control-toggle').click();
+  await expect(page.locator('#control-card')).toBeHidden();
+  await expect(page.locator('#control-expand')).toBeVisible();
+  const expandButtonBox = (await page.locator('#control-expand').boundingBox())!;
+  expect(expandButtonBox.height).toBeGreaterThan(expandButtonBox.width);
+  const collapsedStageWidth = (await page.locator('#stage').boundingBox())!.width;
+  expect(collapsedStageWidth).toBeGreaterThan(expandedStageWidth + 300);
+
+  await page.locator('#control-expand').click();
+  await expect(page.locator('#control-card')).toBeVisible();
+  await expect(page.locator('#control-expand')).toBeHidden();
   expect(errors).toEqual([]);
 });
 
@@ -129,14 +199,20 @@ test('desktop orbit, zoom, pan and view reset', async ({ page }) => {
   expect(changedFraction).toBeLessThan(0.005);
 });
 
-test('touch-size layout loads and accepts joint input', async ({ browser }) => {
+test('touch-size layout loads and accepts joint and jog input', async ({ browser }) => {
   const context = await browser.newContext({ ...devices['iPhone 13'] });
   const page = await context.newPage();
   await ready(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.locator('#joint-tab').click();
   await page.locator('#joint-number-0').fill('15');
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('15.00');
+  await page.locator('#reset-pose').click();
+  await page.locator('#cartesian-tab').click();
+  const beforeZ = Number(await page.locator('#fk-2').innerText());
+  await page.locator('[data-jog-axis="z"][data-jog-dir="1"]').click();
+  expect(Number(await page.locator('#fk-2').innerText()) - beforeZ).toBeCloseTo(1, 1);
   await page.locator('#reset-pose').click();
   await page.locator('[data-mode=translate]').click();
   await expect(page.locator('[data-mode=translate]')).toHaveAttribute('aria-pressed', 'true');

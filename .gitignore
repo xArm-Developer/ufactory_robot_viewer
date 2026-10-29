@@ -8,3 +8,8 @@ playwright-report/
 
 .tools/
 .cf-config/
+
+AGENTS.md
+worklog.md
+prd.md
+

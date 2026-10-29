@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Euler, Quaternion, Vector3 } from 'three';
+import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
 import URDFLoader from 'urdf-loader';
-import { forward, fromRPY, HOME, IKSolver, jointValues, limits, setJoints, toRPY } from '../src/kinematics';
+import { forward, fromRPY, HOME, IKSolver, jogVelocity, jointValues, limits, setJoints, stepBasePose, toRPY } from '../src/kinematics';
 import fixtures from './mujoco-fk.json';
 
 function robot() {
@@ -63,5 +63,39 @@ describe('xArm6 kinematics', () => {
     jointValues(model).forEach((value, i) => expect(value).toBeCloseTo(before[i], 6));
     expect(setJoints(model, [NaN, 0, 0, 0, 0, 0])).toBe(false);
     expect(setJoints(model, [0, 100, 0, 0, 0, 0])).toBe(false);
+  });
+  it('maps jog speed percentages and solves 1 mm / 1 deg steps and 2.5 mm/s micro-frames accurately', () => {
+    expect(jogVelocity(1)).toEqual({ linearMmPerSec: 2.5, angularDegPerSec: 1 });
+    expect(jogVelocity(20)).toEqual({ linearMmPerSec: 50, angularDegPerSec: 20 });
+    expect(jogVelocity(100)).toEqual({ linearMmPerSec: 250, angularDegPerSec: 100 });
+
+    const model = robot();
+    const solver = new IKSolver(model);
+    const start = forward(model);
+
+    // 1 mm linear step on X+
+    const steppedX = stepBasePose(start, 'x', 1);
+    expect(solver.solve(steppedX).ok).toBe(true);
+    const afterX = forward(model);
+    expect((afterX.position.x - start.position.x) * 1000).toBeCloseTo(1, 1);
+    expect(afterX.quaternion.angleTo(start.quaternion)).toBeLessThan(0.05 * Math.PI / 180);
+
+    // 1 deg angular step on Yaw+
+    const beforeYaw = MathUtils.radToDeg(toRPY(afterX.quaternion)[2]);
+    const steppedYaw = stepBasePose(afterX, 'yaw', 1);
+    expect(solver.solve(steppedYaw).ok).toBe(true);
+    const afterYaw = forward(model);
+    expect(MathUtils.radToDeg(toRPY(afterYaw.quaternion)[2]) - beforeYaw).toBeCloseTo(1, 1);
+
+    // 25 frames of 2.5 mm/s continuous motion at 60 FPS (~1.04 mm total)
+    let continuousPose = afterYaw;
+    const frameDeltaMm = 2.5 / 60;
+    for (let frame = 0; frame < 25; frame++) {
+      const nextPose = stepBasePose(continuousPose, 'z', frameDeltaMm);
+      expect(solver.solve(nextPose).ok).toBe(true);
+      continuousPose = nextPose;
+    }
+    const afterContinuous = forward(model);
+    expect((afterContinuous.position.z - afterYaw.position.z) * 1000).toBeCloseTo(25 * frameDeltaMm, 1);
   });
 });

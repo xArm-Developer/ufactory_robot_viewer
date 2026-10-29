@@ -1,10 +1,11 @@
-import { Euler, Matrix4, Quaternion, Vector3 } from 'three';
+import { Euler, MathUtils, Matrix4, Quaternion, Vector3 } from 'three';
 import type { URDFRobot } from 'urdf-loader';
 import { Goal, Joint, Link, Solver, SOLVE_STATUS } from 'closed-chain-ik/core';
 import { URDFUtils } from 'closed-chain-ik/three';
 
 export const HOME = [0, -0.5, 0, 0, 0.5, 0] as const;
 export const JOINT_NAMES = HOME.map((_, index) => `joint${index + 1}`);
+export type CartesianAxis = 'x' | 'y' | 'z' | 'roll' | 'pitch' | 'yaw';
 export interface Pose { position: Vector3; quaternion: Quaternion }
 export interface SolveResult { ok: boolean; reason: 'converged' | 'invalid' | 'unreachable'; positionError?: number; rotationError?: number }
 
@@ -45,6 +46,31 @@ export function toRPY(quaternion: Quaternion): [number, number, number] {
   return [euler.x, euler.y, euler.z];
 }
 
+/** Increment pose in link_base frame: linear axes in mm, RPY axes in degrees. */
+export function stepBasePose(pose: Pose, axis: CartesianAxis, delta: number): Pose {
+  const position = pose.position.clone();
+  if (axis === 'x' || axis === 'y' || axis === 'z') {
+    position[axis] += delta / 1000;
+    return { position, quaternion: pose.quaternion.clone() };
+  }
+  const [roll, pitch, yaw] = toRPY(pose.quaternion);
+  const rad = MathUtils.degToRad(delta);
+  return {
+    position,
+    quaternion: fromRPY(
+      axis === 'roll' ? roll + rad : roll,
+      axis === 'pitch' ? pitch + rad : pitch,
+      axis === 'yaw' ? yaw + rad : yaw,
+    ),
+  };
+}
+
+/** Map 1%–100% slider to 2.5–250 mm/s linear and 1–100 °/s angular speed. */
+export function jogVelocity(percent: number): { linearMmPerSec: number; angularDegPerSec: number } {
+  const clamped = MathUtils.clamp(Math.round(percent), 1, 100);
+  return { linearMmPerSec: clamped * 2.5, angularDegPerSec: clamped };
+}
+
 export class IKSolver {
   private root: Joint;
   private goal: Goal;
@@ -59,8 +85,8 @@ export class IKSolver {
     this.goal.makeClosure(end);
     this.solver = new Solver(this.root);
     this.solver.maxIterations = 100;
-    this.solver.translationConvergeThreshold = 0.00035;
-    this.solver.rotationConvergeThreshold = 0.006;
+    this.solver.translationConvergeThreshold = 0.00002;
+    this.solver.rotationConvergeThreshold = 0.0002;
     this.solver.stallThreshold = 1e-7;
     this.solver.dampingFactor = 0.01;
   }
@@ -85,7 +111,8 @@ export class IKSolver {
     const rotationError = actual.quaternion.angleTo(target.quaternion.clone().normalize());
     const values = jointValues(this.robot);
     const withinLimits = values.every((value, i) => Number.isFinite(value) && value >= limits(this.robot)[i].min - 1e-6 && value <= limits(this.robot)[i].max + 1e-6);
-    if (status.every(item => item === SOLVE_STATUS.CONVERGED) && withinLimits && positionError <= 0.001 && rotationError <= Math.PI / 180) {
+    const converged = status.every(item => item === SOLVE_STATUS.CONVERGED) || (positionError <= 0.00035 && rotationError <= 0.006);
+    if (converged && withinLimits && positionError <= 0.001 && rotationError <= Math.PI / 180) {
       return { ok: true, reason: 'converged', positionError, rotationError };
     }
     setJoints(this.robot, previous);

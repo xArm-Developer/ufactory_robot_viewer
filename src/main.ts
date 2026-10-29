@@ -1,10 +1,27 @@
 import './style.css';
 import { MathUtils, Vector3 } from 'three';
-import { forward, fromRPY, HOME, IKSolver, jointValues, limits, setJoints, toRPY, type Pose } from './kinematics';
+import {
+  forward,
+  fromRPY,
+  HOME,
+  IKSolver,
+  jogVelocity,
+  jointValues,
+  limits,
+  setJoints,
+  stepBasePose,
+  toRPY,
+  type CartesianAxis,
+  type Pose,
+} from './kinematics';
 import { RobotScene, type TransformMode } from './scene';
 import type { URDFRobot } from 'urdf-loader';
 
 type Language = 'zh' | 'en';
+type ControlTab = 'joint' | 'cartesian';
+
+const LONG_PRESS_MS = 220;
+
 const copy = {
   zh: {
     navExplore: '探索 xArm 6', navControl: '运动控制',
@@ -12,8 +29,11 @@ const copy = {
     webgl: '无法启动 3D 视图。请确认浏览器支持 WebGL，然后刷新页面。', retry: '刷新页面',
     interaction: '拖动旋转 · 滚轮缩放 · 右键平移', interactionMobile: '单指旋转 · 双指缩放 / 平移',
     resetView: '复位视角', modelVariant: '1305 版本 · 交互式模型', modelHint: '探索结构与运动',
-    jointTitle: '关节控制', jointSub: 'FK · 正向运动学', cartesianTitle: '笛卡尔控制', cartesianSub: 'IK · 逆向运动学', hide: '收起', show: '展开',
+    panelTitle: '运动控制', panelSub: 'LIVE CONTROL · 实时运动学', controlButton: '运动控制',
+    jointTitle: '关节控制', cartesianTitle: '笛卡尔控制', hide: '收起', show: '展开',
     jointIntro: '调整六个关节，实时计算末端位姿。', currentPose: '当前末端位姿', targetPose: '目标末端位姿', useCurrent: '使用当前位姿',
+    jogTitle: '点动与连续控制', jogHint: '点按步进，长按连续运动（基坐标系 link_base）。',
+    speed: '速度', posStep: '位置步进', rotStep: '姿态步进',
     poseIntro: '输入目标位姿，或在模型上拖动坐标轴。', position: '位置', orientation: '姿态',
     baseFrame: '相对于 link_base · 末端 link_eef', rpyHint: '固定轴 RPY：Rz(yaw) × Ry(pitch) × Rx(roll)',
     apply: '逆解并移动', translate: '平移目标', rotate: '旋转目标', off: '关闭手柄',
@@ -31,8 +51,11 @@ const copy = {
     webgl: 'The 3D view could not start. Check WebGL support in your browser and reload the page.', retry: 'Reload page',
     interaction: 'Drag to rotate · Scroll to zoom · Right-drag to pan', interactionMobile: 'One finger to rotate · Two fingers to zoom / pan',
     resetView: 'Reset view', modelVariant: '1305 VARIANT · INTERACTIVE MODEL', modelHint: 'Explore form and motion',
-    jointTitle: 'Joint control', jointSub: 'FK · FORWARD KINEMATICS', cartesianTitle: 'Cartesian control', cartesianSub: 'IK · INVERSE KINEMATICS', hide: 'Hide', show: 'Show',
+    panelTitle: 'Motion controls', panelSub: 'LIVE CONTROL · KINEMATICS', controlButton: 'Motion controls',
+    jointTitle: 'Joint control', cartesianTitle: 'Cartesian control', hide: 'Hide', show: 'Show',
     jointIntro: 'Adjust the six joints to update the end pose.', currentPose: 'Current end pose', targetPose: 'Target end pose', useCurrent: 'Use current pose',
+    jogTitle: 'Jog & continuous control', jogHint: 'Tap to step, hold for continuous motion (base frame link_base).',
+    speed: 'Speed', posStep: 'Position step', rotStep: 'Attitude step',
     poseIntro: 'Enter a target pose or drag the axes on the model.', position: 'Position', orientation: 'Orientation',
     baseFrame: 'Relative to link_base · end frame link_eef', rpyHint: 'Fixed-axis RPY: Rz(yaw) × Ry(pitch) × Rx(roll)',
     apply: 'Solve and move', translate: 'Move target', rotate: 'Rotate target', off: 'Hide handles',
@@ -51,7 +74,7 @@ const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="site-header">
     <a class="brand" href="#top" aria-label="UF Robots home"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOTS <small> / STUDIO</small></span></a>
-    <nav class="desktop-nav"><a href="#explore" data-t="navExplore"></a><a href="#controls" data-t="navControl"></a></nav>
+    <nav class="desktop-nav"><a href="#explore" data-t="navExplore"></a><a href="#controls" id="nav-controls" data-t="navControl"></a></nav>
     <button class="language" id="language" type="button" aria-label="Switch language"><span class="language-icon">◎</span> <span id="language-label">EN</span></button>
   </header>
   <main id="top">
@@ -64,27 +87,91 @@ app.innerHTML = `
           <button class="view-reset" id="view-reset" type="button"><span aria-hidden="true">↺</span> <span data-t="resetView"></span></button></div>
         <span class="stage-corner corner-tl"></span><span class="stage-corner corner-br"></span>
       </div>
-      <aside class="control-stack" id="controls">
-        <section class="control-card" id="joint-control" aria-labelledby="joint-title">
-          <div class="control-head"><div><span class="control-kicker" data-t="jointSub"></span><h2 id="joint-title" data-t="jointTitle"></h2></div><button id="joint-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="joint-panel"></button></div>
-          <div id="joint-panel"><p class="panel-description" data-t="jointIntro"></p><div class="joint-list" id="joint-list"></div>
-            <div class="control-foot"><span id="joint-status" class="solver-status"><span class="status-dot"></span><span id="joint-status-text"></span></span><button id="reset-pose" type="button" disabled><span aria-hidden="true">↺</span> <span data-t="resetPose"></span></button></div>
+      <aside class="control-shell" id="controls">
+        <button id="control-expand" class="control-expand" type="button" aria-expanded="false" aria-controls="control-card" hidden>
+          <span class="orange-dot" aria-hidden="true"></span>
+          <span class="control-expand-text" data-t="controlButton"></span>
+          <span class="control-expand-plus" aria-hidden="true">+</span>
+        </button>
+        <section class="control-card" id="control-card" aria-labelledby="control-title">
+          <div class="control-head">
+            <div><span class="control-kicker" data-t="panelSub"></span><h2 id="control-title" data-t="panelTitle"></h2></div>
+            <button id="control-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="control-card"><span data-t="hide"></span> <span aria-hidden="true">−</span></button>
           </div>
-        </section>
-        <section class="control-card" id="cartesian-control" aria-labelledby="cartesian-title">
-          <div class="control-head"><div><span class="control-kicker" data-t="cartesianSub"></span><h2 id="cartesian-title" data-t="cartesianTitle"></h2></div><button id="cartesian-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="pose-panel"></button></div>
-          <div id="pose-panel">
-            <div class="pose-heading"><div><span class="pose-tag">FK</span><span data-t="currentPose"></span></div><button id="use-current" type="button" data-t="useCurrent" disabled></button></div>
+          <div class="control-tabs" role="tablist">
+            <button id="joint-tab" class="control-tab" role="tab" type="button" aria-selected="false" aria-controls="joint-panel"><span data-t="jointTitle"></span><small>FK</small></button>
+            <button id="cartesian-tab" class="control-tab" role="tab" type="button" aria-selected="true" aria-controls="pose-panel"><span data-t="cartesianTitle"></span><small>IK</small></button>
+          </div>
+          <div id="joint-panel" role="tabpanel" aria-labelledby="joint-tab" hidden>
+            <p class="panel-description" data-t="jointIntro"></p>
+            <div class="joint-list" id="joint-list"></div>
+          </div>
+          <div id="pose-panel" role="tabpanel" aria-labelledby="cartesian-tab">
+            <div class="pose-heading first-heading"><div><span class="pose-tag">FK</span><span data-t="currentPose"></span></div><button id="use-current" type="button" data-t="useCurrent" disabled></button></div>
             <div class="fk-grid" id="fk-fields" aria-live="off"></div>
-            <div class="pose-heading target-heading"><div><span class="pose-tag">IK</span><span data-t="targetPose"></span></div></div>
+
+            <div class="pose-heading section-divider"><div><span class="pose-tag">JOG</span><span data-t="jogTitle"></span></div><span class="coord-badge">BASE</span></div>
+            <p class="panel-description cartesian-description" data-t="jogHint"></p>
+
+            <div class="jog-speed-box">
+              <div class="jog-speed-top">
+                <label for="jog-speed" data-t="speed"></label>
+                <output id="jog-speed-readout" for="jog-speed">20% · 50.0 mm/s · 20 °/s</output>
+              </div>
+              <input id="jog-speed" type="range" min="1" max="100" step="1" value="20" aria-label="Cartesian speed percentage" />
+              <div class="range-labels"><span>1% (2.5 mm/s)</span><span>100% (250 mm/s)</span></div>
+            </div>
+
+            <div class="jog-steps">
+              <label class="step-field"><span data-t="posStep"></span><div><input id="pos-step" type="number" min="0.1" max="100" step="0.1" value="1" aria-label="Position step in millimeters" /><small>mm</small></div></label>
+              <label class="step-field"><span data-t="rotStep"></span><div><input id="rot-step" type="number" min="0.1" max="45" step="0.1" value="1" aria-label="Attitude step in degrees" /><small>°</small></div></label>
+            </div>
+
+            <div class="jog-group">
+              <div class="jog-group-label"><span data-t="position"></span><span>X / Y / Z · mm</span></div>
+              <div class="jog-pad-row">
+                <div class="dpad-cross">
+                  <button type="button" class="jog-btn dpad-up" data-jog-axis="x" data-jog-dir="1" aria-label="X+" disabled>X+</button>
+                  <button type="button" class="jog-btn dpad-left" data-jog-axis="y" data-jog-dir="1" aria-label="Y+" disabled>Y+</button>
+                  <span class="dpad-center" aria-hidden="true">XY</span>
+                  <button type="button" class="jog-btn dpad-right" data-jog-axis="y" data-jog-dir="-1" aria-label="Y-" disabled>Y-</button>
+                  <button type="button" class="jog-btn dpad-down" data-jog-axis="x" data-jog-dir="-1" aria-label="X-" disabled>X-</button>
+                </div>
+                <div class="dpad-vertical">
+                  <button type="button" class="jog-btn" data-jog-axis="z" data-jog-dir="1" aria-label="Z+" disabled>Z+</button>
+                  <span class="dpad-v-label" aria-hidden="true">Z</span>
+                  <button type="button" class="jog-btn" data-jog-axis="z" data-jog-dir="-1" aria-label="Z-" disabled>Z-</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="jog-group">
+              <div class="jog-group-label"><span data-t="orientation"></span><span>Roll / Pitch / Yaw · °</span></div>
+              <div class="jog-pad-row">
+                <div class="dpad-cross">
+                  <button type="button" class="jog-btn dpad-up" data-jog-axis="pitch" data-jog-dir="1" aria-label="Pitch+" disabled>Pitch+</button>
+                  <button type="button" class="jog-btn dpad-left" data-jog-axis="roll" data-jog-dir="-1" aria-label="Roll-" disabled>Roll-</button>
+                  <span class="dpad-center" aria-hidden="true">RP</span>
+                  <button type="button" class="jog-btn dpad-right" data-jog-axis="roll" data-jog-dir="1" aria-label="Roll+" disabled>Roll+</button>
+                  <button type="button" class="jog-btn dpad-down" data-jog-axis="pitch" data-jog-dir="-1" aria-label="Pitch-" disabled>Pitch-</button>
+                </div>
+                <div class="dpad-vertical">
+                  <button type="button" class="jog-btn" data-jog-axis="yaw" data-jog-dir="1" aria-label="Yaw+" disabled>Yaw+</button>
+                  <span class="dpad-v-label" aria-hidden="true">Yaw</span>
+                  <button type="button" class="jog-btn" data-jog-axis="yaw" data-jog-dir="-1" aria-label="Yaw-" disabled>Yaw-</button>
+                </div>
+              </div>
+            </div>
+
+            <div class="pose-heading section-divider"><div><span class="pose-tag">IK</span><span data-t="targetPose"></span></div></div>
             <p class="panel-description cartesian-description" data-t="poseIntro"></p>
             <div class="field-title"><span data-t="position"></span><span>mm</span></div><div class="pose-grid" id="position-fields"></div>
             <div class="field-title"><span data-t="orientation"></span><span>°</span></div><div class="pose-grid" id="rotation-fields"></div>
             <p class="frame-note" data-t="baseFrame"></p><p class="frame-note" data-t="rpyHint"></p>
             <button id="apply-target" class="apply-button" type="button" data-t="apply" disabled></button>
             <div class="gizmo-buttons"><button data-mode="translate" type="button" data-t="translate" aria-pressed="false" disabled></button><button data-mode="rotate" type="button" data-t="rotate" aria-pressed="false" disabled></button><button data-mode="off" type="button" data-t="off" aria-pressed="true" disabled></button></div>
-            <div class="control-foot"><span id="solver-status" class="solver-status" role="status"><span class="status-dot"></span><span id="status-text"></span></span></div>
           </div>
+          <div class="control-foot"><span id="solver-status" class="solver-status" role="status"><span class="status-dot"></span><span id="status-text"></span></span><button id="reset-pose" type="button" disabled><span aria-hidden="true">↺</span> <span data-t="resetPose"></span></button></div>
         </section>
       </aside>
     </section>
@@ -101,6 +188,20 @@ const $ = <T extends HTMLElement = HTMLElement>(selector: string) => {
   if (!el) throw new Error(`Missing ${selector}`);
   return el;
 };
+
+interface ActiveJog {
+  button: HTMLButtonElement;
+  pointerId: number;
+  axis: CartesianAxis;
+  dir: 1 | -1;
+  continuous: boolean;
+  holdTimer: number;
+  rafId: number;
+  lastTime: number;
+  position: Vector3;
+  rpy: [number, number, number];
+}
+
 let language: Language = 'zh';
 let statusKey: Key = 'solverReady';
 let statusError = false;
@@ -110,28 +211,25 @@ let model: URDFRobot | undefined;
 let solver: IKSolver | undefined;
 let pendingDrag: Pose | undefined;
 let dragFrame = 0;
-const panelOpen = { joint: true, cartesian: true };
+let panelOpen = true;
+let activeJog: ActiveJog | undefined;
 
 function translate() {
   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   document.querySelectorAll<HTMLElement>('[data-t]').forEach(el => { el.textContent = copy[language][el.dataset.t as Key]; });
   $('#language-label').textContent = language === 'zh' ? 'EN' : '中文';
   $('#language').setAttribute('aria-label', language === 'zh' ? 'Switch to English' : '切换为中文');
-  for (const panel of ['joint', 'cartesian'] as const) {
-    $(`#${panel}-toggle`).innerHTML = `${copy[language][panelOpen[panel] ? 'hide' : 'show']} <span aria-hidden="true">${panelOpen[panel] ? '−' : '+'}</span>`;
-  }
   $('#status-text').textContent = copy[language][statusKey];
-  $('#joint-status-text').textContent = copy[language][statusKey];
   const message = document.querySelector<HTMLElement>('#load-message [data-load-text]');
   if (message) message.textContent = copy[language][loadKey];
 }
+
 function status(key: Key, error = false) {
   statusKey = key; statusError = error;
   $('#status-text').textContent = copy[language][key];
-  $('#joint-status-text').textContent = copy[language][key];
   $('#solver-status').classList.toggle('error', statusError);
-  $('#joint-status').classList.toggle('error', statusError);
 }
+
 function setLoadMessage(key: Key) {
   loadKey = key;
   const element = $('#load-message');
@@ -140,9 +238,11 @@ function setLoadMessage(key: Key) {
   element.innerHTML = key === 'loading' ? `<span class="spinner"></span><span data-load-text>${copy[language][key]}</span>` : `<span data-load-text>${copy[language][key]}</span><button type="button" id="retry" data-t="retry">${copy[language].retry}</button>`;
   if (key !== 'loading') $('#retry').addEventListener('click', () => location.reload());
 }
+
 function numberValue(el: HTMLInputElement): number {
   return el.value.trim() === '' ? NaN : Number(el.value);
 }
+
 function syncJointFields() {
   if (!model) return;
   const values = jointValues(model);
@@ -152,25 +252,171 @@ function syncJointFields() {
     $<HTMLInputElement>(`#joint-number-${i}`).value = deg.toFixed(2);
   });
 }
+
 function poseValues(pose: Pose): number[] {
   return [...pose.position.toArray().map(value => value * 1000), ...toRPY(pose.quaternion).map(MathUtils.radToDeg)];
 }
+
 function formatValue(value: number): string {
   return (Math.abs(value) < 0.0005 ? 0 : value).toFixed(2);
 }
+
 function syncPoseFields(pose?: Pose) {
   if (!model) return;
   poseValues(pose ?? forward(model)).forEach((value, i) => { $<HTMLInputElement>(`#pose-${i}`).value = formatValue(value); });
 }
+
 function syncFKFields() {
   if (!model) return;
   poseValues(forward(model)).forEach((value, i) => { $(`#fk-${i}`).textContent = formatValue(value); });
 }
+
 function cancelPendingDrag() {
   if (dragFrame) cancelAnimationFrame(dragFrame);
   dragFrame = 0;
   pendingDrag = undefined;
 }
+
+function updateSpeedReadout() {
+  const raw = numberValue($<HTMLInputElement>('#jog-speed'));
+  const percent = Number.isFinite(raw) ? MathUtils.clamp(Math.round(raw), 1, 100) : 20;
+  const { linearMmPerSec, angularDegPerSec } = jogVelocity(percent);
+  $('#jog-speed-readout').textContent = `${percent}% · ${linearMmPerSec.toFixed(1)} mm/s · ${angularDegPerSec} °/s`;
+}
+
+function readStep(axis: CartesianAxis): number | undefined {
+  const linear = axis === 'x' || axis === 'y' || axis === 'z';
+  const input = $<HTMLInputElement>(linear ? '#pos-step' : '#rot-step');
+  const value = numberValue(input);
+  const max = linear ? 100 : 45;
+  if (!Number.isFinite(value) || value < 0.01 || value > max) {
+    status('invalid', true);
+    return undefined;
+  }
+  return value;
+}
+
+function executeSingleStep(axis: CartesianAxis, dir: 1 | -1) {
+  if (!model) return;
+  const step = readStep(axis);
+  if (step === undefined) return;
+  solveTarget(stepBasePose(forward(model), axis, dir * step), true);
+}
+
+function startContinuousJog(jog: ActiveJog) {
+  if (!model || activeJog !== jog) return;
+  jog.continuous = true;
+  const startPose = forward(model);
+  jog.position = startPose.position.clone();
+  jog.rpy = toRPY(startPose.quaternion);
+  jog.lastTime = performance.now();
+  const initialQuaternion = startPose.quaternion.clone();
+
+  const advance = (dt: number) => {
+    if (!model || !solver || !scene || dt <= 0) return;
+    const rawPercent = numberValue($<HTMLInputElement>('#jog-speed'));
+    const { linearMmPerSec, angularDegPerSec } = jogVelocity(Number.isFinite(rawPercent) ? rawPercent : 20);
+    const nextPos = jog.position.clone();
+    const nextRpy: [number, number, number] = [...jog.rpy];
+    let nextPose: Pose;
+    if (jog.axis === 'x' || jog.axis === 'y' || jog.axis === 'z') {
+      nextPos[jog.axis] += (jog.dir * linearMmPerSec * dt) / 1000;
+      nextPose = { position: nextPos, quaternion: initialQuaternion.clone() };
+    } else {
+      const index = jog.axis === 'roll' ? 0 : jog.axis === 'pitch' ? 1 : 2;
+      nextRpy[index] += MathUtils.degToRad(jog.dir * angularDegPerSec * dt);
+      nextPose = { position: nextPos, quaternion: fromRPY(...nextRpy) };
+    }
+    const result = solver.solve(nextPose);
+    if (result.ok) {
+      jog.position.copy(nextPos);
+      jog.rpy = nextRpy;
+      syncJointFields(); syncFKFields(); syncPoseFields(); scene.syncTarget();
+      status('solverConverged');
+    } else {
+      status(result.reason === 'invalid' ? 'invalid' : 'solverFailed', true);
+    }
+  };
+
+  const tick = () => {
+    if (activeJog !== jog) return;
+    const now = performance.now();
+    const dt = Math.min(Math.max((now - jog.lastTime) / 1000, 0), 0.25);
+    jog.lastTime = now;
+    advance(dt);
+    jog.rafId = requestAnimationFrame(tick);
+  };
+  advance(1 / 60);
+  jog.rafId = requestAnimationFrame(tick);
+}
+
+function stopJog(executeTapIfShort = false) {
+  if (!activeJog) return;
+  const jog = activeJog;
+  activeJog = undefined;
+  window.clearTimeout(jog.holdTimer);
+  if (jog.rafId) cancelAnimationFrame(jog.rafId);
+  jog.button.classList.remove('is-jogging');
+  if (jog.button.hasPointerCapture?.(jog.pointerId)) {
+    try { jog.button.releasePointerCapture(jog.pointerId); } catch { /* ignore released pointer */ }
+  }
+  if (executeTapIfShort && !jog.continuous) executeSingleStep(jog.axis, jog.dir);
+}
+
+function bindJogButtons() {
+  document.querySelectorAll<HTMLButtonElement>('.jog-btn').forEach(button => {
+    const axis = button.dataset.jogAxis as CartesianAxis;
+    const dir = Number(button.dataset.jogDir) as 1 | -1;
+
+    button.addEventListener('pointerdown', event => {
+      if (button.disabled || (event.pointerType === 'mouse' && event.button !== 0)) return;
+      event.preventDefault();
+      stopJog(false);
+      cancelPendingDrag();
+      try { button.setPointerCapture(event.pointerId); } catch { /* synthetic events may omit active pointer */ }
+      button.classList.add('is-jogging');
+      const current = model ? forward(model) : { position: new Vector3(), quaternion: fromRPY(0, 0, 0) };
+      const jog: ActiveJog = {
+        button,
+        pointerId: event.pointerId,
+        axis,
+        dir,
+        continuous: false,
+        holdTimer: 0,
+        rafId: 0,
+        lastTime: 0,
+        position: current.position.clone(),
+        rpy: toRPY(current.quaternion),
+      };
+      activeJog = jog;
+      jog.holdTimer = window.setTimeout(() => startContinuousJog(jog), LONG_PRESS_MS);
+    });
+
+    button.addEventListener('pointerup', event => {
+      if (activeJog?.button === button && activeJog.pointerId === event.pointerId) stopJog(true);
+    });
+    button.addEventListener('pointercancel', () => {
+      if (activeJog?.button === button) stopJog(false);
+    });
+    button.addEventListener('lostpointercapture', () => {
+      if (activeJog?.button === button) stopJog(false);
+    });
+    button.addEventListener('contextmenu', event => event.preventDefault());
+    button.addEventListener('keydown', event => {
+      if (button.disabled || (event.key !== 'Enter' && event.key !== ' ')) return;
+      event.preventDefault();
+      if (!event.repeat) {
+        stopJog(false);
+        cancelPendingDrag();
+        executeSingleStep(axis, dir);
+      }
+    });
+  });
+
+  window.addEventListener('blur', () => stopJog(false));
+  document.addEventListener('visibilitychange', () => { if (document.hidden) stopJog(false); });
+}
+
 function setupControls(robot: URDFRobot) {
   const jointList = $('#joint-list');
   const jointLimits = limits(robot);
@@ -184,6 +430,7 @@ function setupControls(robot: URDFRobot) {
   jointLimits.forEach((_, i) => {
     const change = (event: Event) => {
       if (!model || !scene) return;
+      stopJog(false);
       const value = numberValue(event.target as HTMLInputElement);
       const angles = jointValues(model); angles[i] = MathUtils.degToRad(value);
       cancelPendingDrag();
@@ -193,9 +440,10 @@ function setupControls(robot: URDFRobot) {
     $<HTMLInputElement>(`#joint-range-${i}`).addEventListener('input', change);
     $<HTMLInputElement>(`#joint-number-${i}`).addEventListener('change', change);
   });
-  document.querySelectorAll<HTMLButtonElement>('#apply-target, #use-current, #reset-pose, [data-mode]').forEach(button => { button.disabled = false; });
+  document.querySelectorAll<HTMLButtonElement>('#apply-target, #use-current, #reset-pose, [data-mode], .jog-btn').forEach(button => { button.disabled = false; });
   syncJointFields(); syncFKFields(); syncPoseFields();
 }
+
 function solveTarget(pose: Pose, updateTarget: boolean) {
   if (!solver || !scene) return;
   if (updateTarget) { cancelPendingDrag(); scene.setTarget(pose); }
@@ -207,38 +455,64 @@ function solveTarget(pose: Pose, updateTarget: boolean) {
     status('solverConverged');
   } else status(result.reason === 'invalid' ? 'invalid' : 'solverFailed', true);
 }
+
 function applyPoseFields() {
+  stopJog(false);
   cancelPendingDrag();
   const values = Array.from({ length: 6 }, (_, i) => numberValue($<HTMLInputElement>(`#pose-${i}`)));
   if (!values.every(Number.isFinite)) { status('invalid', true); return; }
   solveTarget({ position: new Vector3(values[0] / 1000, values[1] / 1000, values[2] / 1000), quaternion: fromRPY(...values.slice(3).map(MathUtils.degToRad) as [number, number, number]) }, true);
 }
+
 function setMode(mode: TransformMode) {
   scene?.setMode(mode);
   document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => button.setAttribute('aria-pressed', String(button.dataset.mode === mode)));
 }
-$('#language').addEventListener('click', () => { language = language === 'zh' ? 'en' : 'zh'; translate(); });
-for (const panel of ['joint', 'cartesian'] as const) {
-  $(`#${panel}-toggle`).addEventListener('click', () => {
-    panelOpen[panel] = !panelOpen[panel];
-    $(`#${panel === 'joint' ? 'joint' : 'pose'}-panel`).hidden = !panelOpen[panel];
-    $(`#${panel}-toggle`).setAttribute('aria-expanded', String(panelOpen[panel]));
-    if (panel === 'cartesian' && !panelOpen[panel]) setMode('off');
-    translate();
-  });
+
+function setTab(tab: ControlTab) {
+  stopJog(false);
+  $('#joint-tab').setAttribute('aria-selected', String(tab === 'joint'));
+  $('#cartesian-tab').setAttribute('aria-selected', String(tab === 'cartesian'));
+  $('#joint-panel').hidden = tab !== 'joint';
+  $('#pose-panel').hidden = tab !== 'cartesian';
+  if (tab === 'joint') setMode('off');
 }
+
+function setPanelOpen(open: boolean) {
+  stopJog(false);
+  panelOpen = open;
+  $('#explore').classList.toggle('controls-collapsed', !open);
+  $('#control-card').hidden = !open;
+  $('#control-expand').hidden = open;
+  $('#control-toggle').setAttribute('aria-expanded', String(open));
+  $('#control-expand').setAttribute('aria-expanded', String(open));
+  if (!open) setMode('off');
+}
+
+$('#language').addEventListener('click', () => { language = language === 'zh' ? 'en' : 'zh'; translate(); });
+$('#control-toggle').addEventListener('click', () => setPanelOpen(false));
+$('#control-expand').addEventListener('click', () => setPanelOpen(true));
+$('#nav-controls').addEventListener('click', () => { if (!panelOpen) setPanelOpen(true); });
+$('#joint-tab').addEventListener('click', () => setTab('joint'));
+$('#cartesian-tab').addEventListener('click', () => setTab('cartesian'));
+$('#jog-speed').addEventListener('input', updateSpeedReadout);
 $('#view-reset').addEventListener('click', () => scene?.resetView());
 $('#apply-target').addEventListener('click', applyPoseFields);
 $('#use-current').addEventListener('click', () => {
   if (!model || !scene) return;
-  cancelPendingDrag(); syncPoseFields(); scene.syncTarget(); status('solverReady');
+  stopJog(false); cancelPendingDrag(); syncPoseFields(); scene.syncTarget(); status('solverReady');
 });
-$('#pose-panel').addEventListener('change', event => { if ((event.target as HTMLElement).matches('input')) applyPoseFields(); });
+$('#pose-panel').addEventListener('change', event => {
+  if ((event.target as HTMLElement).matches('#position-fields input, #rotation-fields input')) applyPoseFields();
+});
 $('#reset-pose').addEventListener('click', () => {
   if (!model || !scene) return;
-  cancelPendingDrag(); setJoints(model, HOME); syncJointFields(); syncFKFields(); syncPoseFields(); scene.syncTarget(); status('solverReady');
+  stopJog(false); cancelPendingDrag(); setJoints(model, HOME); syncJointFields(); syncFKFields(); syncPoseFields(); scene.syncTarget(); status('solverReady');
 });
 document.querySelectorAll<HTMLButtonElement>('[data-mode]').forEach(button => button.addEventListener('click', () => setMode(button.dataset.mode as TransformMode)));
+
+bindJogButtons();
+updateSpeedReadout();
 translate();
 setLoadMessage('loading');
 
@@ -256,6 +530,7 @@ async function start() {
     solver = new IKSolver(model);
     scene.syncTarget();
     scene.onTargetChange = pose => {
+      stopJog(false);
       pendingDrag = pose;
       if (!dragFrame) dragFrame = requestAnimationFrame(() => {
         dragFrame = 0;

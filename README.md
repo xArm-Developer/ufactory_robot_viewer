@@ -18,7 +18,7 @@ npm run dev
 - `npm run test:browser`：Playwright 桌面和手机尺寸测试。首次使用需 `npx playwright install chromium`；也可设置 `CHROME_PATH` 使用本机 Chrome。
 - `python scripts/generate-mujoco-fixtures.py`：使用已安装 MuJoCo 的 Python 环境重新生成 FK 基准；当前开发环境为 `/opt/conda_envs/py314/bin/python`。
 
-关节控制面板实时显示关节角度，并通过 FK 更新笛卡尔控制面板的当前末端位姿。笛卡尔面板可输入 XYZ/RPY 目标或拖动平移、旋转手柄，通过 IK 求解；“使用当前位姿”可重置目标。目标求解失败时保留上一次有效姿态，当前 FK 与目标分开显示。关节限制读取自 URDF；位姿从 `link_base` 指向 `link_eef`，界面使用毫米和角度，RPY 为固定轴 `Rz(yaw) × Ry(pitch) × Rx(roll)`。
+右侧“运动控制”面板支持收起为竖排控制按钮（移动端为横条按钮），展开后可在“关节控制”与“笛卡尔控制”标签间切换。关节控制实时调节六轴角度并通过 FK 更新当前末端位姿；笛卡尔控制分开显示当前 FK 位姿与目标 IK 位姿，提供参考 UFACTORY Studio 的方向盘按钮（点按步进默认 `1 mm / 1°`，长按连续运动由 `1%–100%` 速度滑条映射为 `2.5–250 mm/s` 与 `1–100 °/s`），同时保留 XYZ/RPY 数值输入、平移/旋转手柄与“使用当前位姿”重置。目标求解失败时保留上一次有效姿态。关节限制读取自 URDF；位姿从 `link_base` 指向 `link_eef`，界面使用毫米和角度，RPY 为固定轴 `Rz(yaw) × Ry(pitch) × Rx(roll)`。
 
 ## 部署
 
