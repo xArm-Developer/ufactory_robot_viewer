@@ -1,14 +1,15 @@
 import { test, expect, devices } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as { samples: { position: number[] }[] };
+const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as { samples: { joints: number[]; position: number[] }[] };
+const zeroSample = fixtures.samples[1];
 
 const ready = async (page: import('@playwright/test').Page) => {
   await page.goto('/');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
 };
 
-test('desktop unified panel, FK/IK sync, and UFACTORY Studio Cartesian jog controls', async ({ page }) => {
+test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate frames, and Cartesian jog controls', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const meshes: string[] = [];
   const errors: string[] = [];
@@ -21,29 +22,79 @@ test('desktop unified panel, FK/IK sync, and UFACTORY Studio Cartesian jog contr
   await expect(page.locator('#control-expand')).toBeHidden();
   await expect(page.locator('#pose-panel')).toBeVisible();
   await expect(page.locator('#joint-panel')).toBeHidden();
-  expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.samples[0].position[0] * 1000, 1);
+
+  // Verify Target End Pose section and 3D drag gizmo buttons are completely removed
+  await expect(page.locator('#position-fields')).toHaveCount(0);
+  await expect(page.locator('#rotation-fields')).toHaveCount(0);
+  await expect(page.locator('#apply-target')).toHaveCount(0);
+  await expect(page.locator('#use-current')).toHaveCount(0);
+  await expect(page.locator('[data-mode]')).toHaveCount(0);
+
+  // Verify live pose & joint telemetry is overlaid on the 3D stage layer and starts at all-zero joints
+  await expect(page.locator('#stage #stage-telemetry')).toBeVisible();
+  expect(await page.locator('#stage-telemetry').evaluate(el => getComputedStyle(el).pointerEvents)).toBe('none');
+  for (let i = 0; i < 6; i++) {
+    await expect(page.locator(`#stage-joint-${i}`)).toHaveText('0.00');
+  }
+  expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(zeroSample.position[0] * 1000, 1);
+  await expect(page.locator('#fk-1')).toHaveText('0.00');
+  expect(Number(await page.locator('#fk-2').innerText())).toBeCloseTo(zeroSample.position[2] * 1000, 1);
+  expect(Math.abs(Number(await page.locator('#fk-3').innerText()))).toBeCloseTo(180, 1);
+  await expect(page.locator('#fk-4')).toHaveText('0.00');
+  await expect(page.locator('#fk-5')).toHaveText('0.00');
 
   // Switch language to English
   await page.locator('#language').click();
   await expect(page.locator('#cartesian-tab')).toContainText('Cartesian control');
+  await expect(page.locator('#toggle-base-frame')).toContainText('Base frame');
+  await expect(page.locator('#toggle-tcp-frame')).toContainText('TCP frame');
 
-  // Switch to Joint control tab and verify FK updates Cartesian readout
-  const initialY = Number(await page.locator('#fk-1').innerText());
+  // Verify Base & TCP RGB coordinate frame buttons default to hidden and render on toggle
+  const canvas = page.locator('#canvas-area canvas');
+  await expect(page.locator('#toggle-base-frame')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'false');
+  await page.waitForTimeout(150);
+  const noFramesShot = await canvas.screenshot();
+
+  await page.locator('#toggle-base-frame').click();
+  await expect(page.locator('#toggle-base-frame')).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(150);
+  const baseFrameShot = await canvas.screenshot();
+  expect(baseFrameShot.equals(noFramesShot)).toBe(false);
+
+  await page.locator('#toggle-tcp-frame').click();
+  await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
+  await page.waitForTimeout(150);
+  const bothFramesShot = await canvas.screenshot();
+  expect(bothFramesShot.equals(baseFrameShot)).toBe(false);
+
+  // Toggle both off again
+  await page.locator('#toggle-base-frame').click();
+  await page.locator('#toggle-tcp-frame').click();
+  await expect(page.locator('#toggle-base-frame')).toHaveAttribute('aria-pressed', 'false');
+  await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'false');
+
+  // Switch to Joint control tab and verify 3D stage telemetry updates both J1 and FK live
   await page.locator('#joint-tab').click();
   await expect(page.locator('#joint-panel')).toBeVisible();
   await expect(page.locator('#pose-panel')).toBeHidden();
+  for (let i = 0; i < 6; i++) {
+    await expect(page.locator(`#joint-number-${i}`)).toHaveValue('0.00');
+  }
   await page.locator('#joint-number-0').fill('20');
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('20.00');
+  await expect(page.locator('#stage-joint-0')).toHaveText('20.00');
+  expect(Math.abs(Number(await page.locator('#fk-1').innerText()))).toBeGreaterThan(10);
+
+  await page.locator('#reset-pose').click();
+  await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
+  await expect(page.locator('#fk-1')).toHaveText('0.00');
 
   await page.locator('#cartesian-tab').click();
   await expect(page.locator('#pose-panel')).toBeVisible();
-  expect(Math.abs(Number(await page.locator('#fk-1').innerText()) - initialY)).toBeGreaterThan(10);
-  expect(Number(await page.locator('#pose-1').inputValue())).toBeCloseTo(Number(await page.locator('#fk-1').innerText()), 1);
 
-  await page.locator('#reset-pose').click();
-
-  // Verify UFACTORY Studio Cartesian jog defaults, step tap, speed percentage, and continuous hold
+  // Verify UFACTORY Studio Cartesian jog defaults, step tap, speed percentage, and continuous hold from all-zero pose
   await expect(page.locator('#pos-step')).toHaveValue('1');
   await expect(page.locator('#rot-step')).toHaveValue('1');
   await expect(page.locator('#jog-speed')).toHaveValue('20');
@@ -64,6 +115,14 @@ test('desktop unified panel, FK/IK sync, and UFACTORY Studio Cartesian jog contr
   await page.locator('#pos-step').fill('5');
   await page.locator('[data-jog-axis="y"][data-jog-dir="1"]').click();
   expect(Number(await page.locator('#fk-1').innerText()) - homeY).toBeCloseTo(5, 1);
+  expect(Math.abs(Number(await page.locator('#stage-joint-0').innerText()))).toBeGreaterThan(0.5);
+
+  // Invalid step input reports clear validation status without changing pose
+  const yBeforeInvalid = await page.locator('#fk-1').innerText();
+  await page.locator('#pos-step').fill('0');
+  await page.locator('[data-jog-axis="y"][data-jog-dir="1"]').click();
+  await expect(page.locator('#status-text')).toContainText('valid value');
+  await expect(page.locator('#fk-1')).toHaveText(yBeforeInvalid);
   await page.locator('#pos-step').fill('1');
 
   // Verify speed slider 1% (2.5 mm/s) and 100% (250 mm/s)
@@ -74,7 +133,8 @@ test('desktop unified panel, FK/IK sync, and UFACTORY Studio Cartesian jog contr
   await page.locator('#jog-speed').dispatchEvent('input');
   await expect(page.locator('#jog-speed-readout')).toHaveText('100% · 250.0 mm/s · 100 °/s');
 
-  // Long-press continuous motion on Z+ at 40% (100 mm/s)
+  // Long-press continuous motion on Z+ at 40% (100 mm/s) starting from reset all-zero pose
+  await page.locator('#reset-pose').click();
   await page.locator('#jog-speed').fill('40');
   await page.locator('#jog-speed').dispatchEvent('input');
   const zPlus = page.locator('[data-jog-axis="z"][data-jog-dir="1"]');
@@ -88,53 +148,6 @@ test('desktop unified panel, FK/IK sync, and UFACTORY Studio Cartesian jog contr
   expect(zAfterHold - homeZ).toBeGreaterThan(20);
   await page.waitForTimeout(350);
   expect(Number(await page.locator('#fk-2').innerText())).toBeCloseTo(zAfterHold, 2);
-
-  await page.locator('#reset-pose').click();
-
-  // Numeric IK input, failure rollback, and Use current pose
-  const originalX = Number(await page.locator('#pose-0').inputValue());
-  await page.locator('#pose-0').fill(String(originalX + 10));
-  await page.locator('#pose-0').dispatchEvent('change');
-  await expect(page.locator('#status-text')).toHaveText('Target solved');
-  expect(Math.abs(Number(await page.locator('#fk-0').innerText()) - (originalX + 10))).toBeLessThan(1);
-  const beforeFailureFK = await page.locator('#fk-0').innerText();
-  await page.locator('#pose-0').fill('10000');
-  await page.locator('#pose-0').dispatchEvent('change');
-  await expect(page.locator('#status-text')).toContainText('Could not reach');
-  expect(await page.locator('#fk-0').innerText()).toBe(beforeFailureFK);
-  await expect(page.locator('#pose-0')).toHaveValue('10000');
-  await page.locator('#pose-0').fill('');
-  await page.locator('#pose-0').dispatchEvent('change');
-  await expect(page.locator('#status-text')).toContainText('valid value');
-  await page.locator('#use-current').click();
-  await expect(page.locator('#status-text')).toHaveText('Ready');
-  expect(Number(await page.locator('#pose-0').inputValue())).toBeCloseTo(Number(beforeFailureFK), 1);
-
-  // 3D translate & rotate handles
-  await page.locator('#reset-pose').click();
-  await page.locator('[data-mode=translate]').click();
-  await page.locator('#stage').scrollIntoViewIfNeeded();
-  const stage = (await page.locator('#stage').boundingBox())!;
-  const x = stage.x + stage.width / 2 + 149;
-  const y = stage.y + stage.height * 0.744;
-  await page.mouse.move(x, y); await page.mouse.down();
-  await page.mouse.move(x + 24, y + 8, { steps: 4 }); await page.mouse.up();
-  await expect(page.locator('#status-text')).toHaveText('Target solved');
-  expect(Number(await page.locator('#pose-0').inputValue())).toBeGreaterThan(originalX + 5);
-  expect(Math.abs(Number(await page.locator('#fk-0').innerText()) - Number(await page.locator('#pose-0').inputValue()))).toBeLessThan(1);
-
-  await page.locator('#reset-pose').click();
-  await page.locator('[data-mode=rotate]').click();
-  await expect(page.locator('[data-mode=rotate]')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('#stage').scrollIntoViewIfNeeded();
-  const rotationStage = (await page.locator('#stage').boundingBox())!;
-  const rx = rotationStage.x + rotationStage.width / 2 + 114;
-  const ry = rotationStage.y + rotationStage.height * 0.776;
-  const beforeYaw = Number(await page.locator('#pose-5').inputValue());
-  await page.mouse.move(rx, ry); await page.mouse.down();
-  await page.mouse.move(rx + 20, ry + 6, { steps: 4 }); await page.mouse.up();
-  await expect(page.locator('#status-text')).toHaveText('Target solved');
-  expect(Math.abs(Number(await page.locator('#pose-5').inputValue()) - beforeYaw)).toBeGreaterThan(1);
 
   // Collapse unified panel into vertical control button and expand back
   const expandedStageWidth = (await page.locator('#stage').boundingBox())!.width;
@@ -199,46 +212,34 @@ test('desktop orbit, zoom, pan and view reset', async ({ page }) => {
   expect(changedFraction).toBeLessThan(0.005);
 });
 
-test('touch-size layout loads and accepts joint and jog input', async ({ browser }) => {
+test('touch-size layout loads with stage telemetry, coordinate frame toggles, and joint/jog input', async ({ browser }) => {
   const context = await browser.newContext({ ...devices['iPhone 13'] });
   const page = await context.newPage();
   await ready(page);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
+  await expect(page.locator('#toggle-base-frame')).toHaveAttribute('aria-pressed', 'false');
+  await page.locator('#toggle-base-frame').click();
+  await expect(page.locator('#toggle-base-frame')).toHaveAttribute('aria-pressed', 'true');
+  await page.locator('#toggle-tcp-frame').click();
+  await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
+
   await page.locator('#joint-tab').click();
   await page.locator('#joint-number-0').fill('15');
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('15.00');
+  await expect(page.locator('#stage-joint-0')).toHaveText('15.00');
   await page.locator('#reset-pose').click();
+  await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
+
   await page.locator('#cartesian-tab').click();
   const beforeZ = Number(await page.locator('#fk-2').innerText());
   await page.locator('[data-jog-axis="z"][data-jog-dir="1"]').click();
+  await expect(page.locator('#status-text')).toHaveText('目标已求解');
   expect(Number(await page.locator('#fk-2').innerText()) - beforeZ).toBeCloseTo(1, 1);
-  await page.locator('#reset-pose').click();
-  await page.locator('[data-mode=translate]').click();
-  await expect(page.locator('[data-mode=translate]')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('#stage').scrollIntoViewIfNeeded();
-  let stage = (await page.locator('#stage').boundingBox())!;
-  const initialX = Number(await page.locator('#pose-0').inputValue());
-  const client = await context.newCDPSession(page);
-  let x = stage.x + stage.width * 0.80, y = stage.y + stage.height * 0.744;
-  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-  await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 18, y: y + 6 }] });
-  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await expect(page.locator('#status-text')).toHaveText('目标已求解');
-  expect(Number(await page.locator('#pose-0').inputValue())).toBeGreaterThan(initialX + 5);
-  await page.locator('#reset-pose').click();
-  await page.locator('[data-mode=rotate]').click();
-  await expect(page.locator('[data-mode=rotate]')).toHaveAttribute('aria-pressed', 'true');
-  await page.locator('#stage').scrollIntoViewIfNeeded();
-  stage = (await page.locator('#stage').boundingBox())!;
-  x = stage.x + stage.width / 2 + 85; y = stage.y + stage.height * 0.776;
-  const yaw = Number(await page.locator('#pose-5').inputValue());
-  await client.send('Input.dispatchTouchEvent', { type: 'touchStart', touchPoints: [{ x, y }] });
-  await client.send('Input.dispatchTouchEvent', { type: 'touchMove', touchPoints: [{ x: x + 15, y: y + 5 }] });
-  await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
-  await expect(page.locator('#status-text')).toHaveText('目标已求解');
-  expect(Math.abs(Number(await page.locator('#pose-5').inputValue()) - yaw)).toBeGreaterThan(1);
+
   await page.locator('#view-reset').click();
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   await context.close();
 });
 

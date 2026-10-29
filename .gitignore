@@ -8,6 +8,7 @@ playwright-report/
 
 .tools/
 .cf-config/
+.dev
 
 AGENTS.md
 worklog.md

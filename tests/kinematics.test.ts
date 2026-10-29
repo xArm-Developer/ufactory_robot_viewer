@@ -15,6 +15,15 @@ function robot() {
 }
 
 describe('xArm6 kinematics', () => {
+  it('defaults HOME to all-zero joints matching MuJoCo zero pose', () => {
+    expect(HOME).toEqual([0, 0, 0, 0, 0, 0]);
+    const model = robot();
+    expect(jointValues(model)).toEqual([0, 0, 0, 0, 0, 0]);
+    const zeroSample = fixtures.samples[1];
+    const pose = forward(model);
+    expect(pose.position.distanceTo(new Vector3(...zeroSample.position as [number, number, number]))).toBeLessThan(0.0001);
+    expect(pose.quaternion.angleTo(new Quaternion(...zeroSample.quaternion as [number, number, number, number]))).toBeLessThan(0.01 * Math.PI / 180);
+  });
   it.each(fixtures.samples)('matches MuJoCo FK for $joints', sample => {
     const model = robot();
     expect(setJoints(model, sample.joints)).toBe(true);
@@ -27,18 +36,18 @@ describe('xArm6 kinematics', () => {
     expect(q.angleTo(new Quaternion().setFromEuler(new Euler(0.3, -0.7, 1.2, 'ZYX')))).toBeLessThan(1e-7);
     expect(toRPY(q)).toEqual(expect.arrayContaining([expect.closeTo(0.3), expect.closeTo(-0.7), expect.closeTo(1.2)]));
   });
-  it('solves reachable goals and keeps all joints within URDF limits', () => {
+  it('solves reachable goals from all-zero HOME and keeps all joints within URDF limits', () => {
     const source = robot();
     const controlled = robot();
     const solver = new IKSolver(controlled);
-    // Sequential targets emulate small interactive steps and include a near-singular wrist.
+    // Sequential targets emulate interactive steps starting from all-zero and include a near-singular wrist.
     const targets = [
       [0.12, -0.55, -0.12, 0.12, 0.55, -0.1],
       [0.22, -0.7, -0.24, 0.22, 0.7, -0.2],
       [0.08, -0.45, -0.4, -0.1, 0.35, 0.15],
       [-0.1, -0.35, -0.3, 0.2, 0.08, -0.05],
       [-0.12, -0.4, -0.25, 0.1, 0.001, 0.05],
-      [0, -0.5, 0, 0, 0.5, 0],
+      [0, 0, 0, 0, 0, 0],
     ];
     for (const angles of targets) {
       expect(setJoints(source, angles)).toBe(true);
@@ -64,7 +73,7 @@ describe('xArm6 kinematics', () => {
     expect(setJoints(model, [NaN, 0, 0, 0, 0, 0])).toBe(false);
     expect(setJoints(model, [0, 100, 0, 0, 0, 0])).toBe(false);
   });
-  it('maps jog speed percentages and solves 1 mm / 1 deg steps and 2.5 mm/s micro-frames accurately', () => {
+  it('maps jog speed percentages and solves 1 mm / 1 deg steps and 2.5 mm/s micro-frames from all-zero HOME', () => {
     expect(jogVelocity(1)).toEqual({ linearMmPerSec: 2.5, angularDegPerSec: 1 });
     expect(jogVelocity(20)).toEqual({ linearMmPerSec: 50, angularDegPerSec: 20 });
     expect(jogVelocity(100)).toEqual({ linearMmPerSec: 250, angularDegPerSec: 100 });

@@ -1,25 +1,63 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { TransformControls } from 'three/addons/controls/TransformControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import URDFLoader, { type URDFRobot } from 'urdf-loader';
-import { forward, type Pose } from './kinematics';
 
-export type TransformMode = 'off' | 'translate' | 'rotate';
+function createCoordinateFrame(axisLength: number, shaftRadius: number): THREE.Group {
+  const frame = new THREE.Group();
+  const headLength = axisLength * 0.22;
+  const headRadius = shaftRadius * 2.4;
+  const shaftLength = axisLength - headLength;
+  const shaftGeometry = new THREE.CylinderGeometry(shaftRadius, shaftRadius, shaftLength, 16);
+  const headGeometry = new THREE.ConeGeometry(headRadius, headLength, 20);
+
+  const axes: { color: number; rotation: [number, number, number] }[] = [
+    { color: 0xe53935, rotation: [0, 0, -Math.PI / 2] }, // +X Red
+    { color: 0x2ea043, rotation: [0, 0, 0] },            // +Y Green
+    { color: 0x2574e8, rotation: [Math.PI / 2, 0, 0] },  // +Z Blue
+  ];
+
+  for (const { color, rotation } of axes) {
+    const material = new THREE.MeshBasicMaterial({
+      color,
+      depthTest: false,
+      transparent: true,
+      opacity: 0.94,
+      toneMapped: false,
+    });
+    const axis = new THREE.Group();
+    const shaft = new THREE.Mesh(shaftGeometry, material);
+    shaft.position.y = shaftLength / 2;
+    shaft.renderOrder = 999;
+    const head = new THREE.Mesh(headGeometry, material);
+    head.position.y = shaftLength + headLength / 2;
+    head.renderOrder = 999;
+    axis.add(shaft, head);
+    axis.rotation.set(...rotation);
+    frame.add(axis);
+  }
+
+  const origin = new THREE.Mesh(
+    new THREE.SphereGeometry(shaftRadius * 1.6, 16, 12),
+    new THREE.MeshBasicMaterial({ color: 0x25332e, depthTest: false, toneMapped: false }),
+  );
+  origin.renderOrder = 1000;
+  frame.add(origin);
+  return frame;
+}
 
 export class RobotScene {
   robot!: URDFRobot;
-  onTargetChange?: (pose: Pose) => void;
   private scene = new THREE.Scene();
   private renderer: THREE.WebGLRenderer;
   private camera: THREE.PerspectiveCamera;
   private orbit: OrbitControls;
-  private transform: TransformControls;
-  private target = new THREE.Object3D();
   private resizeObserver: ResizeObserver;
-  private frame = 0;
-  private currentMode: TransformMode = 'off';
+  private baseFrame?: THREE.Group;
+  private tcpFrame?: THREE.Group;
+  private baseFrameVisible = false;
+  private tcpFrameVisible = false;
   private initialCamera = new THREE.Vector3(0.93, -1.2, 0.95);
   private initialTarget = new THREE.Vector3(0, 0, 0.38);
 
@@ -71,28 +109,6 @@ export class RobotScene {
     ring.position.z = -0.008;
     this.scene.add(ring);
 
-    const marker = new THREE.Mesh(new THREE.SphereGeometry(0.012, 20, 12), new THREE.MeshBasicMaterial({ color: 0xee6d38, depthTest: false }));
-    marker.renderOrder = 1000;
-    this.target.add(marker);
-    this.scene.add(this.target);
-    this.target.visible = false;
-    this.transform = new TransformControls(this.camera, this.renderer.domElement);
-    this.transform.setSpace('world');
-    this.transform.setSize(0.8);
-    this.transform.attach(this.target);
-    const helper = this.transform.getHelper();
-    helper.visible = false;
-    this.scene.add(helper);
-    this.transform.addEventListener('dragging-changed', event => { this.orbit.enabled = !event.value; });
-    this.transform.addEventListener('objectChange', () => {
-      if (!this.robot || this.currentMode === 'off') return;
-      const base = this.robot.links.link_base;
-      base.updateWorldMatrix(true, false);
-      const baseQ = base.getWorldQuaternion(new THREE.Quaternion());
-      const position = this.target.position.clone().applyMatrix4(new THREE.Matrix4().copy(base.matrixWorld).invert());
-      const quaternion = baseQ.invert().multiply(this.target.quaternion.clone()).normalize();
-      this.onTargetChange?.({ position, quaternion });
-    });
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
@@ -129,35 +145,30 @@ export class RobotScene {
     this.robot = loader.parse(xml);
     if (pending.length !== 7) throw new Error(`Expected 7 visual meshes, found ${pending.length}`);
     await Promise.all(pending);
+
+    this.baseFrame = createCoordinateFrame(0.14, 0.0026);
+    this.baseFrame.name = 'base_coordinate_frame';
+    this.baseFrame.visible = this.baseFrameVisible;
+    this.robot.links.link_base.add(this.baseFrame);
+
+    this.tcpFrame = createCoordinateFrame(0.1, 0.0022);
+    this.tcpFrame.name = 'tcp_coordinate_frame';
+    this.tcpFrame.visible = this.tcpFrameVisible;
+    this.robot.links.link_eef.add(this.tcpFrame);
+
     this.scene.add(this.robot);
     this.robot.updateMatrixWorld(true);
     return this.robot;
   }
 
-  syncTarget(): void {
-    if (!this.robot) return;
-    const pose = forward(this.robot);
-    const base = this.robot.links.link_base;
-    base.updateWorldMatrix(true, false);
-    this.target.position.copy(pose.position).applyMatrix4(base.matrixWorld);
-    this.target.quaternion.copy(base.getWorldQuaternion(new THREE.Quaternion())).multiply(pose.quaternion);
-    this.target.updateMatrixWorld(true);
+  setBaseFrameVisible(visible: boolean): void {
+    this.baseFrameVisible = visible;
+    if (this.baseFrame) this.baseFrame.visible = visible;
   }
 
-  setTarget(pose: Pose): void {
-    const base = this.robot.links.link_base;
-    base.updateWorldMatrix(true, false);
-    this.target.position.copy(pose.position).applyMatrix4(base.matrixWorld);
-    this.target.quaternion.copy(base.getWorldQuaternion(new THREE.Quaternion())).multiply(pose.quaternion);
-    this.target.updateMatrixWorld(true);
-  }
-
-  setMode(mode: TransformMode): void {
-    this.currentMode = mode;
-    this.target.visible = mode !== 'off';
-    this.transform.enabled = mode !== 'off';
-    this.transform.getHelper().visible = mode !== 'off';
-    if (mode !== 'off') this.transform.setMode(mode);
+  setTcpFrameVisible(visible: boolean): void {
+    this.tcpFrameVisible = visible;
+    if (this.tcpFrame) this.tcpFrame.visible = visible;
   }
 
   resetView(): void {

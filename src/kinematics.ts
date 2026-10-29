@@ -3,7 +3,7 @@ import type { URDFRobot } from 'urdf-loader';
 import { Goal, Joint, Link, Solver, SOLVE_STATUS } from 'closed-chain-ik/core';
 import { URDFUtils } from 'closed-chain-ik/three';
 
-export const HOME = [0, -0.5, 0, 0, 0.5, 0] as const;
+export const HOME = [0, 0, 0, 0, 0, 0] as const;
 export const JOINT_NAMES = HOME.map((_, index) => `joint${index + 1}`);
 export type CartesianAxis = 'x' | 'y' | 'z' | 'roll' | 'pitch' | 'yaw';
 export interface Pose { position: Vector3; quaternion: Quaternion }

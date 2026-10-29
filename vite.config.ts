@@ -6,7 +6,6 @@ export default defineConfig({
     include: [
       'three',
       'three/addons/controls/OrbitControls.js',
-      'three/addons/controls/TransformControls.js',
       'three/addons/loaders/GLTFLoader.js',
       'three/addons/loaders/DRACOLoader.js',
       'urdf-loader',
