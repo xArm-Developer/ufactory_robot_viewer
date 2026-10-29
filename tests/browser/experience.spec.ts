@@ -63,6 +63,53 @@ test('desktop model, bilingual controls, numeric IK, and target dragging', async
   expect(errors).toEqual([]);
 });
 
+test('desktop orbit, zoom, pan and view reset', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await ready(page);
+  await page.locator('#stage').scrollIntoViewIfNeeded();
+  const canvas = page.locator('#canvas-area canvas');
+  const box = (await canvas.boundingBox())!;
+  const cx = box.x + box.width * 0.40, cy = box.y + box.height * 0.42;
+  const initial = await canvas.screenshot();
+  await page.mouse.move(cx, cy); await page.mouse.down();
+  await page.mouse.move(cx + 90, cy + 30, { steps: 4 }); await page.mouse.up();
+  await page.waitForTimeout(800);
+  const rotated = await canvas.screenshot();
+  expect(rotated.equals(initial)).toBe(false);
+  await page.mouse.move(cx, cy); await page.mouse.wheel(0, -250);
+  await page.waitForTimeout(800);
+  const zoomed = await canvas.screenshot();
+  expect(zoomed.equals(rotated)).toBe(false);
+  await page.mouse.move(cx, cy); await page.mouse.down({ button: 'right' });
+  await page.mouse.move(cx + 50, cy + 25, { steps: 4 }); await page.mouse.up({ button: 'right' });
+  await page.waitForTimeout(800);
+  const panned = await canvas.screenshot();
+  expect(panned.equals(zoomed)).toBe(false);
+  await page.locator('#view-reset').click();
+  await page.waitForTimeout(800);
+  const restored = await canvas.screenshot();
+  // Rasterization may differ by a few pixels; compare the image rather than PNG bytes.
+  const changedFraction = await page.evaluate(async ([first, second]) => {
+    const load = async (data: string) => {
+      const image = new Image(); image.src = `data:image/png;base64,${data}`;
+      await image.decode(); return image;
+    };
+    const [a, b] = await Promise.all([load(first), load(second)]);
+    const canvas = document.createElement('canvas'); canvas.width = a.width; canvas.height = a.height;
+    const context = canvas.getContext('2d')!;
+    context.drawImage(a, 0, 0); const initialPixels = context.getImageData(0, 0, a.width, a.height).data;
+    context.clearRect(0, 0, a.width, a.height); context.drawImage(b, 0, 0);
+    const restoredPixels = context.getImageData(0, 0, a.width, a.height).data;
+    let changed = 0;
+    for (let i = 0; i < initialPixels.length; i += 4) {
+      if (Math.max(...[0, 1, 2].map(channel => Math.abs(initialPixels[i + channel] - restoredPixels[i + channel]))) > 5) changed++;
+    }
+    return changed / (a.width * a.height);
+  }, [initial.toString('base64'), restored.toString('base64')]);
+  expect(changedFraction).toBeLessThan(0.005);
+});
+
 test('touch-size layout loads and accepts joint input', async ({ browser }) => {
   const context = await browser.newContext({ ...devices['iPhone 13'] });
   const page = await context.newPage();

@@ -161,9 +161,13 @@ export class RobotScene {
   }
 
   resetView(): void {
+    // Drain any remaining damping before restoring the saved view, otherwise it drifts.
+    this.orbit.enableDamping = false;
+    this.orbit.update();
     this.camera.position.copy(this.initialCamera);
     this.orbit.target.copy(this.initialTarget);
     this.orbit.update();
+    this.orbit.enableDamping = true;
   }
 
   private resize(): void {
