@@ -25,6 +25,8 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await expect(page.locator('#control-expand')).toBeHidden();
   await expect(page.locator('#pose-panel')).toBeVisible();
   await expect(page.locator('#joint-panel')).toBeHidden();
+  await expect(page.locator('#joint-tab')).toHaveText('关节控制');
+  await expect(page.locator('#cartesian-tab')).toHaveText('笛卡尔控制');
 
   const zeroSample = fixtures.robots.xarm6.samples[0];
 
@@ -43,7 +45,8 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
 
   // Switch language to English
   await page.locator('#language').click();
-  await expect(page.locator('#cartesian-tab')).toContainText('Cartesian control');
+  await expect(page.locator('#joint-tab')).toHaveText('Joint control');
+  await expect(page.locator('#cartesian-tab')).toHaveText('Cartesian control');
   await expect(page.locator('#toggle-base-frame')).toContainText('Base frame');
   await expect(page.locator('#toggle-tcp-frame')).toContainText('TCP frame');
 
@@ -172,13 +175,13 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   page.on('pageerror', error => errors.push(error.message));
 
   await ready(page);
-  await expect(page.locator('#model-switcher .model-tab-name')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
+  await expect(page.locator('#robot-select option:not([value=standalone])')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
   await page.locator('#toggle-tcp-frame').click();
   await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
 
   // 1. Switch to xArm 5 (5 DoF, 6 GLBs, Roll+ / Roll- disabled with solid gray background)
   loadedGlbs.length = 0;
-  await page.locator('[data-robot-id="xarm5"]').click();
+  await page.locator('#robot-select').selectOption('xarm5');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm5');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   expect(loadedGlbs).toHaveLength(6);
@@ -194,12 +197,9 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   await expect(rollPlus).toBeDisabled();
   await expect(rollMinus).toBeDisabled();
   await expect(pitchPlus).toBeEnabled();
-  const [rollBg, pitchBg] = await Promise.all([
-    rollPlus.evaluate(el => getComputedStyle(el).backgroundColor),
-    pitchPlus.evaluate(el => getComputedStyle(el).backgroundColor),
-  ]);
-  expect(rollBg).not.toBe(pitchBg);
-  expect(rollBg).toBe('rgb(227, 232, 228)');
+  // Wait for the button color transition after the new model becomes ready.
+  await expect(rollPlus).toHaveCSS('background-color', 'rgb(227, 232, 228)');
+  await expect(pitchPlus).toHaveCSS('background-color', 'rgb(255, 255, 255)');
 
   const xarm5HomeX = Number(await page.locator('#fk-0').innerText());
   expect(xarm5HomeX).toBeCloseTo(fixtures.robots.xarm5.samples[0].position[0] * 1000, 1);
@@ -210,7 +210,7 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
 
   // 2. Switch to xArm 7 (7 DoF, 8 GLBs, Roll± re-enabled, 7th joint active)
   loadedGlbs.length = 0;
-  await page.locator('[data-robot-id="xarm7"]').click();
+  await page.locator('#robot-select').selectOption('xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   expect(loadedGlbs).toHaveLength(8);
@@ -229,30 +229,27 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   await page.locator('[data-jog-axis="z"][data-jog-dir="1"]').click();
   expect(Number(await page.locator('#fk-2').innerText()) - xarm7Z).toBeCloseTo(1, 1);
 
-  // 3. Switch to 850 (named "850", 7 GLBs, inline wrist Roll- from zero pose, 850 mm / ±0.02 mm specs)
+  // 3. Switch to 850 (named "850", 7 GLBs, inline wrist Roll- from zero pose)
   loadedGlbs.length = 0;
-  await page.locator('[data-robot-id="uf850"]').click();
+  await page.locator('#robot-select').selectOption('uf850');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'uf850');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   expect(loadedGlbs).toHaveLength(7);
   await expect(page.locator('h1')).toHaveText('850');
-  await expect(page.locator('#spec-eyebrow')).toHaveText('850 / AT A GLANCE');
-  await expect(page.locator('#spec-reach')).toContainText('850');
-  await expect(page.locator('#spec-repeatability')).toContainText('±0.02');
+  await expect(page.locator('#assets')).toContainText('850');
   expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.robots.uf850.samples[0].position[0] * 1000, 1);
 
   await rollMinus.click();
   await expect(page.locator('#status-text')).toHaveText('目标已求解');
   expect(Math.abs(Number(await page.locator('#fk-3').innerText()))).toBeCloseTo(179, 1);
 
-  // 4. Direct URL load of Lite 6 (?model=lite6, 7 GLBs, 440 mm / 0.6 kg specs)
+  // 4. Direct URL load of Lite 6 (?model=lite6, 7 GLBs)
   loadedGlbs.length = 0;
   await ready(page, '/?model=lite6');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'lite6');
   expect(loadedGlbs).toHaveLength(7);
   await expect(page.locator('h1')).toHaveText('Lite 6');
-  await expect(page.locator('#spec-reach')).toContainText('440');
-  await expect(page.locator('#spec-payload')).toContainText('0.6');
+  await expect(page.locator('#assets')).toContainText('Lite 6');
   expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.robots.lite6.samples[0].position[0] * 1000, 1);
 
   expect(errors).toEqual([]);
@@ -318,7 +315,7 @@ test('touch-size layout loads with model switcher, 7-joint telemetry, coordinate
   await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
 
   // Switch to 7-DoF xArm 7 on mobile viewport and confirm zero horizontal overflow
-  await page.locator('[data-robot-id="xarm7"]').click();
+  await page.locator('#robot-select').selectOption('xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   await expect(page.locator('#stage-joint-fields .telemetry-cell')).toHaveCount(7);

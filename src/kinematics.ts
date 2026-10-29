@@ -51,8 +51,22 @@ export function setJoints(robot: URDFRobot, values: readonly number[]): boolean 
   return true;
 }
 
-/** Pose of end-effector flange link relative to link_base, independent of the scene transform. */
-export function forward(robot: URDFRobot, eeLink?: string): Pose {
+/** Compose two rigid poses without changing either input. */
+export function composePose(parent: Pose, local: Pose): Pose {
+  return {
+    position: local.position.clone().applyQuaternion(parent.quaternion).add(parent.position),
+    quaternion: parent.quaternion.clone().multiply(local.quaternion).normalize(),
+  };
+}
+
+/** Recover the flange pose from the requested TCP pose and flange-to-TCP offset. */
+export function flangeFromTcp(tcp: Pose, offset: Pose): Pose {
+  const quaternion = tcp.quaternion.clone().normalize().multiply(offset.quaternion.clone().invert()).normalize();
+  return { position: tcp.position.clone().sub(offset.position.clone().applyQuaternion(quaternion)), quaternion };
+}
+
+/** Pose of the flange or fixed TCP relative to link_base, independent of the scene transform. */
+export function forward(robot: URDFRobot, eeLink?: string, offset?: Pose): Pose {
   robot.updateMatrixWorld(true);
   const base = robot.links.link_base;
   const end = robot.links[resolveEeLink(robot, eeLink)];
@@ -60,7 +74,8 @@ export function forward(robot: URDFRobot, eeLink?: string): Pose {
   const position = new Vector3();
   const quaternion = new Quaternion();
   relative.decompose(position, quaternion, new Vector3());
-  return { position, quaternion: quaternion.normalize() };
+  const flange = { position, quaternion: quaternion.normalize() };
+  return offset ? composePose(flange, offset) : flange;
 }
 
 /** URDF fixed-axis RPY: Rz(yaw) × Ry(pitch) × Rx(roll). */
@@ -103,6 +118,7 @@ export class IKSolver {
   private goal: Goal;
   private solver: Solver;
   private eeLink: string;
+  private offset: Pose = { position: new Vector3(), quaternion: new Quaternion() };
 
   constructor(private robot: URDFRobot, eeLink?: string) {
     this.eeLink = resolveEeLink(robot, eeLink);
@@ -121,19 +137,24 @@ export class IKSolver {
     this.solver.dampingFactor = 0.01;
   }
 
+  setToolOffset(offset: Pose): void {
+    this.offset = { position: offset.position.clone(), quaternion: offset.quaternion.clone().normalize() };
+  }
+
   solve(target: Pose): SolveResult {
     const numbers = [...target.position.toArray(), ...target.quaternion.toArray()];
     if (!numbers.every(Number.isFinite) || target.quaternion.lengthSq() < 1e-12) return { ok: false, reason: 'invalid' };
     const previous = jointValues(this.robot);
     const jointLimits = limits(this.robot);
     const normalizedTargetQuat = target.quaternion.clone().normalize();
+    const flangeTarget = flangeFromTcp({ position: target.position, quaternion: normalizedTargetQuat }, this.offset);
 
     this.robot.updateMatrixWorld(true);
     const base = this.robot.links.link_base;
     const basePosition = base.getWorldPosition(new Vector3());
     const baseQuaternion = base.getWorldQuaternion(new Quaternion());
-    const worldPosition = target.position.clone().applyQuaternion(baseQuaternion).add(basePosition);
-    const worldQuaternion = baseQuaternion.clone().multiply(normalizedTargetQuat);
+    const worldPosition = flangeTarget.position.clone().applyQuaternion(baseQuaternion).add(basePosition);
+    const worldQuaternion = baseQuaternion.clone().multiply(flangeTarget.quaternion);
 
     const trySolve = (seed: readonly number[]) => {
       setJoints(this.robot, seed);
@@ -142,7 +163,7 @@ export class IKSolver {
       this.goal.setQuaternion(worldQuaternion.x, worldQuaternion.y, worldQuaternion.z, worldQuaternion.w);
       const status = this.solver.solve();
       URDFUtils.setUrdfFromIK(this.robot, this.root as unknown as Link);
-      const actual = forward(this.robot, this.eeLink);
+      const actual = forward(this.robot, this.eeLink, this.offset);
       const positionError = actual.position.distanceTo(target.position);
       const rotationError = actual.quaternion.angleTo(normalizedTargetQuat);
       const values = jointValues(this.robot);

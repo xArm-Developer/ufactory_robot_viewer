@@ -4,6 +4,9 @@ import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import URDFLoader, { type URDFRobot } from 'urdf-loader';
 import type { RobotSpec } from './robots';
+import { gripperMount, type GripperSpec } from './grippers';
+import { createGripperModel, gripperPartNames, type GripperModel } from './gripper-model';
+import type { Pose } from './kinematics';
 
 function disposeObject(root: THREE.Object3D): void {
   root.traverse(object => {
@@ -79,6 +82,10 @@ export class RobotScene {
   private initialCamera = new THREE.Vector3(0.93, -1.2, 0.95);
   private initialTarget = new THREE.Vector3(0, 0, 0.38);
   private loadToken = 0;
+  private gripperToken = 0;
+  private gripper?: GripperModel;
+  private renderPending = false;
+  private platformMaterial = new THREE.MeshStandardMaterial({ color: 0xbfc7c4, roughness: 0.83, metalness: 0.16 });
 
   constructor(private container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -103,6 +110,7 @@ export class RobotScene {
     this.orbit.minDistance = 0.45;
     this.orbit.maxDistance = 5;
     this.orbit.maxPolarAngle = Math.PI * 0.49;
+    this.orbit.addEventListener('change', () => this.requestRender());
     this.orbit.update();
 
     this.scene.add(new THREE.HemisphereLight(0xffffff, 0x777f82, 2.2));
@@ -122,7 +130,7 @@ export class RobotScene {
     floor.position.z = -0.012;
     floor.receiveShadow = true;
     this.scene.add(floor);
-    const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.49, 0.025, 96), new THREE.MeshStandardMaterial({ color: 0xbfc7c4, roughness: 0.83, metalness: 0.16 }));
+    const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.49, 0.025, 96), this.platformMaterial);
     disk.rotation.x = Math.PI / 2;
     disk.position.z = -0.025;
     disk.receiveShadow = true;
@@ -134,7 +142,15 @@ export class RobotScene {
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
     this.resize();
-    this.renderer.setAnimationLoop(() => {
+    this.requestRender();
+  }
+
+  /** Render changes and orbit damping, but leave an idle scene idle. */
+  requestRender(): void {
+    if (this.renderPending) return;
+    this.renderPending = true;
+    requestAnimationFrame(() => {
+      this.renderPending = false;
       this.orbit.update();
       this.renderer.render(this.scene, this.camera);
     });
@@ -149,8 +165,28 @@ export class RobotScene {
     this.tcpFrame = undefined;
   }
 
+  private clearCurrentGripper(): void {
+    this.platformMaterial.transparent = false;
+    this.platformMaterial.opacity = 1;
+    this.platformMaterial.depthWrite = true;
+    this.platformMaterial.needsUpdate = true;
+    if (!this.gripper) return;
+    this.gripper.root.removeFromParent();
+    disposeObject(this.gripper.root);
+    this.gripper = undefined;
+  }
+
+  clear(): void {
+    ++this.loadToken;
+    ++this.gripperToken;
+    this.clearCurrentGripper();
+    this.clearCurrentRobot();
+  }
+
   async load(spec: RobotSpec): Promise<URDFRobot | null> {
     const token = ++this.loadToken;
+    ++this.gripperToken;
+    this.clearCurrentGripper();
     this.clearCurrentRobot();
 
     const baseUrl = new URL(`${import.meta.env.BASE_URL}${spec.modelDir}`, document.baseURI);
@@ -177,14 +213,16 @@ export class RobotScene {
       pending.push(task);
     };
     const nextRobot = loader.parse(xml);
-    if (pending.length !== spec.visualMeshCount) {
-      disposeObject(nextRobot);
-      throw new Error(`Expected ${spec.visualMeshCount} visual meshes, found ${pending.length}`);
-    }
-    await Promise.all(pending);
+    const results = await Promise.allSettled(pending);
     if (token !== this.loadToken) {
       disposeObject(nextRobot);
       return null;
+    }
+    const failed = results.find(result => result.status === 'rejected');
+    if (failed || pending.length !== spec.visualMeshCount) {
+      disposeObject(nextRobot);
+      if (failed?.status === 'rejected') throw failed.reason;
+      throw new Error(`Expected ${spec.visualMeshCount} visual meshes, found ${pending.length}`);
     }
 
     const endLink = nextRobot.links[spec.eeLink];
@@ -212,17 +250,89 @@ export class RobotScene {
 
     this.scene.add(this.robot);
     this.robot.updateMatrixWorld(true);
+    this.requestRender();
     return this.robot;
+  }
+
+  async setGripper(spec: GripperSpec | undefined, opening: number, robotSpec?: RobotSpec): Promise<boolean> {
+    const token = ++this.gripperToken;
+    this.clearCurrentGripper();
+    if (!spec) {
+      if (robotSpec) this.renderer.domElement.setAttribute('aria-label', `Interactive ${robotSpec.name} 3D model`);
+      this.resize();
+      this.requestRender();
+      return true;
+    }
+    const baseUrl = new URL(`${import.meta.env.BASE_URL}models/${spec.id}/`, document.baseURI);
+    const loader = new GLTFLoader().setDRACOLoader(this.draco);
+    const names = gripperPartNames(spec);
+    const results = await Promise.allSettled(names.map(name => loader.loadAsync(new URL(`${name}.glb`, baseUrl).href)));
+    const loaded = results.flatMap(result => result.status === 'fulfilled' ? [result.value.scene] : []);
+    if (token !== this.gripperToken || results.some(result => result.status === 'rejected')) {
+      loaded.forEach(disposeObject);
+      if (token !== this.gripperToken) return false;
+      const failure = results.find(result => result.status === 'rejected');
+      throw failure?.status === 'rejected' ? failure.reason : new Error('Unable to load gripper');
+    }
+    const parts = Object.fromEntries(names.map((name, index) => [name, loaded[index]]));
+    let gripper: GripperModel;
+    try { gripper = createGripperModel(spec, parts); }
+    catch (error) { loaded.forEach(disposeObject); throw error; }
+    gripper.setOpening(opening);
+    this.gripper = gripper;
+    if (robotSpec) {
+      if (!this.robot) { this.clearCurrentGripper(); throw new Error('Robot is not loaded'); }
+      const mount = gripperMount(robotSpec.id, spec.id);
+      gripper.root.position.copy(mount.position);
+      gripper.root.quaternion.copy(mount.quaternion);
+      this.robot.links[robotSpec.eeLink].add(gripper.root);
+      // A zero-pose tool can extend below the stage. Keep it visible through
+      // the decorative platform without changing the robot's joints or TCP.
+      this.platformMaterial.transparent = true;
+      this.platformMaterial.opacity = 0.2;
+      this.platformMaterial.depthWrite = false;
+      this.platformMaterial.needsUpdate = true;
+    } else {
+      if (spec.id === 'bio-gripper-g2') gripper.root.rotation.y = -Math.PI / 2;
+      this.scene.add(gripper.root);
+      gripper.root.updateMatrixWorld(true);
+      let bounds = new THREE.Box3().setFromObject(gripper.root);
+      gripper.root.position.z += 0.001 - bounds.min.z;
+      gripper.root.updateMatrixWorld(true);
+      bounds = new THREE.Box3().setFromObject(gripper.root);
+      bounds.getCenter(this.initialTarget);
+      this.initialCamera.copy(this.initialTarget).add(new THREE.Vector3(0.32, -0.46, 0.3));
+      this.resetView();
+    }
+    this.renderer.domElement.setAttribute('aria-label', `Interactive ${robotSpec ? `${robotSpec.name} and ` : ''}${spec.name} 3D model`);
+    this.resize();
+    this.requestRender();
+    return true;
+  }
+
+  setGripperOpening(opening: number): boolean {
+    const changed = this.gripper?.setOpening(opening) ?? false;
+    if (changed) this.requestRender();
+    return changed;
+  }
+
+  setToolOffset(offset: Pose): void {
+    if (!this.tcpFrame) return;
+    this.tcpFrame.position.copy(offset.position);
+    this.tcpFrame.quaternion.copy(offset.quaternion);
+    this.requestRender();
   }
 
   setBaseFrameVisible(visible: boolean): void {
     this.baseFrameVisible = visible;
     if (this.baseFrame) this.baseFrame.visible = visible;
+    this.requestRender();
   }
 
   setTcpFrameVisible(visible: boolean): void {
     this.tcpFrameVisible = visible;
     if (this.tcpFrame) this.tcpFrame.visible = visible;
+    this.requestRender();
   }
 
   resetView(): void {
@@ -233,14 +343,17 @@ export class RobotScene {
     this.orbit.target.copy(this.initialTarget);
     this.orbit.update();
     this.orbit.enableDamping = true;
+    this.requestRender();
   }
 
   private resize(): void {
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
     if (!width || !height) return;
+    this.camera.fov = this.robot && this.gripper && width < 600 ? 45 : 36;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);
+    this.requestRender();
   }
 }

@@ -5,6 +5,7 @@ test-results/
 playwright-report/
 .DS_Store
 .tmp/
+/dev/
 
 .tools/
 .cf-config/

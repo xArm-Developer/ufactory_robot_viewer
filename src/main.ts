@@ -14,7 +14,9 @@ import {
   type CartesianAxis,
   type Pose,
 } from './kinematics';
-import { DEFAULT_ROBOT_ID, getRobotSpec, ROBOTS, type RobotId, type RobotSpec } from './robots';
+import { DEFAULT_ROBOT_ID, getRobotSpec, ROBOTS, type RobotSpec } from './robots';
+import { getGripper, GRIPPERS, supportsGripper, toolOffset, validOpening, type GripperSpec } from './grippers';
+import { renderAssetInventory, type SceneAsset } from './assets';
 import { RobotScene } from './scene';
 import type { URDFRobot } from 'urdf-loader';
 
@@ -26,44 +28,48 @@ const LONG_PRESS_MS = 220;
 const copy = {
   zh: {
     navControl: '运动控制',
-    modelBarLabel: '机械臂型号',
+    modelBarLabel: '机械臂', standaloneBadge: '夹爪',
     loading: '正在加载 3D 模型…', ready: '模型已就绪', failed: '模型加载失败。请检查网络连接或刷新页面。',
     webgl: '无法启动 3D 视图。请确认浏览器支持 WebGL，然后刷新页面。', retry: '刷新页面',
     interaction: '拖动旋转 · 滚轮缩放 · 右键平移', interactionMobile: '单指旋转 · 双指缩放 / 平移',
     baseAxes: '基坐标系', tcpAxes: 'TCP 坐标系', resetView: '复位视角',
-    telemetryPose: '末端位姿', telemetryJoints: '关节角度',
+    telemetryPose: 'TCP 位姿', telemetryJoints: '关节角度',
     panelTitle: '运动控制', panelSub: 'LIVE CONTROL · 实时运动学', controlButton: '运动控制',
-    jointTitle: '关节控制', cartesianTitle: '笛卡尔控制', hide: '收起', show: '展开',
+    jointTitle: '关节控制', cartesianTitle: '笛卡尔控制', hide: '收起',
     jogTitle: '点动与连续控制', jogHint: '点按步进，长按连续运动（基坐标系 link_base · 固定轴 RPY）。',
     speed: '速度', posStep: '位置步进', rotStep: '姿态步进',
     position: '位置', orientation: '姿态',
     resetPose: '复位姿态', solverReady: '就绪', solverConverged: '目标已求解',
     solverFailed: '无法收敛到目标；已保留上一次有效姿态。', invalid: '请输入有效且在范围内的数值。',
-    figure: '探索每一个细节', figureText: '切换机型、旋转视角、调整关节，或通过笛卡尔点动直观了解机械臂的运动方式。',
-    specTitle: '为创造而生。', reach: '工作半径', payload: '负载', repeatability: '重复定位精度',
-    noteTitle: '关于这个演示',
-    noteText: '本页面仅演示运动学，不连接真实设备，也不包含碰撞检测、动力学或末端工具。实际使用请以官方文档和设备配置为准。',
+    toolLabel: '末端工具', noTool: '无', liteUnavailable: 'Lite 6 暂不支持装配 Gripper G2 或 BIO Gripper G2。',
+    standaloneSelect: '独立查看中', standaloneHint: '正在独立查看夹爪。选择机械臂或末端工具可返回装配。',
+    standaloneTitle: '末端工具', standaloneIntro: '独立查看夹爪', returnAssembly: '返回装配',
+    gripperTitle: '夹爪控制', gripperIntro: '调整两指夹持面的开口间距。', opening: '开口间距',
+    inventoryTitle: '当前场景资产', inventoryHint: '查看当前产品的 UFACTORY 官方介绍。',
+    official: '官网介绍',
     footer: '独立产品探索项目 · UFACTORY 与 xArm 是其各自所有者的商标',
   },
   en: {
     navControl: 'Motion controls',
-    modelBarLabel: 'ROBOT MODEL',
+    modelBarLabel: 'Robot arm', standaloneBadge: 'GRIPPER',
     loading: 'Loading 3D model…', ready: 'Model ready', failed: 'Could not load the model. Check your connection or reload the page.',
     webgl: 'The 3D view could not start. Check WebGL support in your browser and reload the page.', retry: 'Reload page',
     interaction: 'Drag to rotate · Scroll to zoom · Right-drag to pan', interactionMobile: 'One finger to rotate · Two fingers to zoom / pan',
     baseAxes: 'Base frame', tcpAxes: 'TCP frame', resetView: 'Reset view',
     telemetryPose: 'TCP pose', telemetryJoints: 'Joint angles',
     panelTitle: 'Motion controls', panelSub: 'LIVE CONTROL · KINEMATICS', controlButton: 'Motion controls',
-    jointTitle: 'Joint control', cartesianTitle: 'Cartesian control', hide: 'Hide', show: 'Show',
+    jointTitle: 'Joint control', cartesianTitle: 'Cartesian control', hide: 'Hide',
     jogTitle: 'Jog & continuous control', jogHint: 'Tap to step, hold for continuous motion (base frame link_base · fixed-axis RPY).',
     speed: 'Speed', posStep: 'Position step', rotStep: 'Attitude step',
     position: 'Position', orientation: 'Orientation',
     resetPose: 'Reset pose', solverReady: 'Ready', solverConverged: 'Target solved',
     solverFailed: 'Could not reach the target; the last valid pose is preserved.', invalid: 'Enter a valid value within the allowed range.',
-    figure: 'Explore every detail', figureText: 'Switch models, change the view, move each joint, or jog in Cartesian space to see how the arm moves.',
-    specTitle: 'Made to create.', reach: 'Reach', payload: 'Payload', repeatability: 'Repeatability',
-    noteTitle: 'About this demo',
-    noteText: 'This is a kinematics demonstration. It does not connect to hardware or include collision detection, dynamics, or end tools. Refer to the official documentation and your device configuration for actual use.',
+    toolLabel: 'End effector', noTool: 'None', liteUnavailable: 'Gripper G2 and BIO Gripper G2 cannot be mounted on Lite 6.',
+    standaloneSelect: 'Standalone view', standaloneHint: 'Viewing a gripper on its own. Select an arm or end effector to return to the assembly.',
+    standaloneTitle: 'End effectors', standaloneIntro: 'View grippers individually', returnAssembly: 'Return to assembly',
+    gripperTitle: 'Gripper control', gripperIntro: 'Adjust the gap between the gripping surfaces.', opening: 'Opening',
+    inventoryTitle: 'Assets in this scene', inventoryHint: 'Explore the current products on the UFACTORY website.',
+    official: 'Official product page',
     footer: 'Independent product exploration · UFACTORY and xArm are trademarks of their respective owners',
   },
 } as const;
@@ -79,10 +85,6 @@ function buildJointTelemetryHtml(dof: number): string {
   ).join('');
 }
 
-const modelTabsHtml = ROBOTS.map(spec =>
-  `<button type="button" class="model-tab" role="tab" data-robot-id="${spec.id}" aria-selected="false"><span class="model-tab-name">${spec.name}</span><small data-dof="${spec.dof}">${spec.dof} 轴</small></button>`,
-).join('');
-
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="site-header">
@@ -91,14 +93,29 @@ app.innerHTML = `
     <button class="language" id="language" type="button" aria-label="Switch language"><span class="language-icon">◎</span> <span id="language-label">EN</span></button>
   </header>
   <main id="top">
-    <div class="model-bar page-width">
-      <span class="model-bar-label" data-t="modelBarLabel"></span>
-      <div class="model-switcher" id="model-switcher" role="tablist" aria-label="Robot models">${modelTabsHtml}</div>
+    <div class="selection-bar page-width">
+      <div class="selection-field">
+        <label for="robot-select" data-t="modelBarLabel"></label>
+        <select id="robot-select">
+          <option value="standalone" data-t="standaloneSelect" disabled hidden></option>
+          ${ROBOTS.map(spec => `<option value="${spec.id}">${spec.name}</option>`).join('')}
+        </select>
+      </div>
+      <div class="selection-field">
+        <label for="gripper-select" data-t="toolLabel"></label>
+        <select id="gripper-select">
+          <option value="standalone" data-t="standaloneSelect" disabled hidden></option>
+          <option value="" data-t="noTool"></option>
+          ${GRIPPERS.map(spec => `<option value="${spec.id}">${spec.name}</option>`).join('')}
+        </select>
+        <small id="lite-unavailable" data-t="liteUnavailable" hidden></small>
+      </div>
+      <p id="standalone-hint" class="selection-hint" data-t="standaloneHint" hidden></p>
     </div>
     <section class="experience page-width" id="explore" aria-label="xArm 6 interactive experience">
       <div class="stage" id="stage">
         <div class="stage-top">
-          <div class="stage-title"><span class="stage-overline" id="stage-overline"></span><h1 id="stage-heading">xArm 6</h1></div>
+          <div class="stage-title"><span class="stage-overline" id="stage-overline"></span><h1 id="stage-heading">xArm 6</h1><div class="stage-product-links" id="stage-product-links"></div></div>
           <div class="stage-telemetry" id="stage-telemetry">
             <div class="telemetry-section">
               <div class="telemetry-head"><span data-t="telemetryPose"></span><small>BASE · mm / °</small></div>
@@ -139,9 +156,23 @@ app.innerHTML = `
             <div><span class="control-kicker" data-t="panelSub"></span><h2 id="control-title" data-t="panelTitle"></h2></div>
             <button id="control-toggle" class="panel-toggle" type="button" aria-expanded="true" aria-controls="control-card"><span data-t="hide"></span> <span aria-hidden="true">−</span></button>
           </div>
+          <section class="standalone-tools" aria-labelledby="standalone-title">
+            <h3 id="standalone-title" data-t="standaloneTitle"></h3>
+            <p data-t="standaloneIntro"></p>
+            <div class="standalone-buttons">${GRIPPERS.map(spec => `<button type="button" data-gripper-view="${spec.id}" aria-pressed="false">${spec.name}</button>`).join('')}</div>
+            <button class="return-assembly" id="return-assembly" type="button" data-t="returnAssembly" hidden></button>
+          </section>
+          <section class="gripper-control" id="gripper-control" hidden>
+            <div class="gripper-heading"><strong data-t="gripperTitle"></strong><span id="gripper-name"></span></div>
+            <p data-t="gripperIntro"></p>
+            <div class="gripper-inputs"><label for="opening-number" data-t="opening"></label><div class="joint-value"><input id="opening-number" type="number" step="0.1" /><span>mm</span></div></div>
+            <input id="opening-range" type="range" step="0.1" aria-label="Gripper opening" />
+            <div class="range-labels"><span id="opening-min"></span><span id="opening-max"></span></div>
+          </section>
+          <div id="arm-controls">
           <div class="control-tabs" role="tablist">
-            <button id="joint-tab" class="control-tab" role="tab" type="button" aria-selected="false" aria-controls="joint-panel"><span data-t="jointTitle"></span><small>FK</small></button>
-            <button id="cartesian-tab" class="control-tab" role="tab" type="button" aria-selected="true" aria-controls="pose-panel"><span data-t="cartesianTitle"></span><small>IK</small></button>
+            <button id="joint-tab" class="control-tab" role="tab" type="button" aria-selected="false" aria-controls="joint-panel"><span data-t="jointTitle"></span></button>
+            <button id="cartesian-tab" class="control-tab" role="tab" type="button" aria-selected="true" aria-controls="pose-panel"><span data-t="cartesianTitle"></span></button>
           </div>
           <div id="joint-panel" role="tabpanel" aria-labelledby="joint-tab" hidden>
             <p class="panel-description" id="joint-intro"></p>
@@ -201,15 +232,12 @@ app.innerHTML = `
               </div>
             </div>
           </div>
+          </div>
           <div class="control-foot"><span id="solver-status" class="solver-status" role="status"><span class="status-dot"></span><span id="status-text"></span></span><button id="reset-pose" type="button" disabled><span aria-hidden="true">↺</span> <span data-t="resetPose"></span></button></div>
         </section>
       </aside>
     </section>
-    <section class="intro-strip page-width"><div class="section-index">01 <span>/</span> EXPERIENCE</div><h2 data-t="figure"></h2><p data-t="figureText"></p></section>
-    <section class="spec-section"><div class="page-width spec-inner"><div class="spec-copy"><div class="eyebrow light-eyebrow"><span class="orange-dot"></span> <span id="spec-eyebrow">XARM 6 / AT A GLANCE</span></div><h2 data-t="specTitle"></h2><p id="spec-description"></p></div>
-      <div class="spec-grid"><div><strong id="spec-reach">700 <small>mm</small></strong><span data-t="reach"></span></div><div><strong id="spec-payload">5 <small>kg</small></strong><span data-t="payload"></span></div><div><strong id="spec-repeatability">±0.1 <small>mm</small></strong><span data-t="repeatability"></span></div></div>
-      <a class="source-link" id="spec-source-link" href="https://www.ufactory.cc/wp-content/uploads/2024/02/xArm-User-Manual-V2.3.0.pdf" target="_blank" rel="noopener noreferrer"><span id="spec-source-text"></span> ↗</a></div></section>
-    <section class="about page-width"><span class="section-index">02 <span>/</span> ABOUT</span><div><h2 data-t="noteTitle"></h2><p data-t="noteText"></p></div><a href="https://www.ufactory.cc/" target="_blank" rel="noopener noreferrer">UFACTORY.COM ↗</a></section>
+    <section class="inventory-section" id="assets" aria-labelledby="inventory-title"><div class="page-width inventory-inner"><div><span class="section-index">01 <span>/</span> ASSETS</span><h2 id="inventory-title" data-t="inventoryTitle"></h2><p data-t="inventoryHint"></p></div><div class="asset-list" id="asset-list" role="status" aria-live="polite" aria-atomic="true"></div></div></section>
   </main>
   <footer class="page-width"><div class="brand footer-brand"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOTS</span></div><span data-t="footer"></span><span>© 2026</span></footer>`;
 
@@ -232,7 +260,22 @@ interface ActiveJog {
   rpy: [number, number, number];
 }
 
-let currentSpec: RobotSpec = getRobotSpec(new URLSearchParams(window.location.search).get('model'));
+const initialParams = new URLSearchParams(window.location.search);
+const initialStandalone = getGripper(initialParams.get('model'));
+const initialRobot: RobotSpec = getRobotSpec(initialParams.get('model'));
+const initialGripper = initialStandalone ?? (supportsGripper(initialRobot.id) ? getGripper(initialParams.get('gripper')) : undefined);
+const initialOpening = initialParams.get('opening');
+const parsedOpening = initialGripper && initialOpening !== null && initialOpening.trim() !== '' && validOpening(initialGripper, Number(initialOpening))
+  ? Number(initialOpening) : initialGripper?.maxMm ?? 0;
+// The assembly remains intact while a separate standalone gripper is being viewed.
+const assembly: { spec: RobotSpec; gripper: GripperSpec | undefined; opening: number } = {
+  spec: initialRobot,
+  gripper: initialStandalone ? undefined : initialGripper,
+  opening: initialStandalone ? 0 : parsedOpening,
+};
+let standaloneSelection: { gripper: GripperSpec; opening: number } | undefined = initialStandalone
+  ? { gripper: initialStandalone, opening: parsedOpening } : undefined;
+const activeSelection = () => standaloneSelection ?? assembly;
 let language: Language = 'zh';
 let statusKey: Key = 'solverReady';
 let statusError = false;
@@ -244,25 +287,69 @@ let panelOpen = true;
 let showBaseFrame = false;
 let showTcpFrame = false;
 let activeJog: ActiveJog | undefined;
+let selectionToken = 0;
+let sceneReady = false;
 
-function renderRobotCopy() {
-  document.title = `${currentSpec.name} — UF Robots`;
-  $('#nav-explore').textContent = language === 'zh' ? `探索 ${currentSpec.name}` : `Explore ${currentSpec.name}`;
-  $('#explore').setAttribute('aria-label', `${currentSpec.name} interactive experience`);
-  $('#stage-overline').textContent = currentSpec.variantLabel[language];
-  $('#stage-heading').textContent = currentSpec.name;
+function syncOpeningFields() {
+  const { gripper, opening } = activeSelection();
+  if (!gripper) return;
+  $('#gripper-name').textContent = gripper.name;
+  for (const selector of ['#opening-number', '#opening-range']) {
+    const input = $<HTMLInputElement>(selector);
+    input.min = String(gripper.minMm); input.max = String(gripper.maxMm);
+    input.value = opening.toFixed(1); input.disabled = !sceneReady;
+  }
+  $('#opening-range').setAttribute('aria-label', copy[language].opening);
+  $('#opening-min').textContent = `${gripper.minMm} mm`;
+  $('#opening-max').textContent = `${gripper.maxMm} mm`;
+}
+
+function renderSceneCopy() {
+  const currentSpec = assembly.spec;
+  const standalone = Boolean(standaloneSelection);
+  const { gripper } = activeSelection();
+  const productName = standaloneSelection?.gripper.name ?? currentSpec.name;
+  document.title = `${productName} — UF Robots`;
+  $('#nav-explore').textContent = language === 'zh' ? `探索 ${productName}` : `Explore ${productName}`;
+  $('#explore').setAttribute('aria-label', `${productName} interactive experience`);
+  $('#stage-overline').textContent = standalone ? copy[language].standaloneBadge : currentSpec.variantLabel[language];
+  $('#stage-heading').textContent = productName;
   $('#telemetry-joints-range').textContent = `J1–J${currentSpec.dof} · °`;
   $('#joint-intro').textContent = currentSpec.jointIntro[language];
-  $('#spec-eyebrow').textContent = `${currentSpec.name.toUpperCase()} / AT A GLANCE`;
-  $('#spec-description').textContent = currentSpec.specDescription[language];
-  $('#spec-reach').innerHTML = `${currentSpec.specs.reachMm} <small>mm</small>`;
-  $('#spec-payload').innerHTML = `${currentSpec.specs.payload.value} <small>${currentSpec.specs.payload.unit}</small>`;
-  $('#spec-repeatability').innerHTML = `${currentSpec.specs.repeatabilityMm} <small>mm</small>`;
-  $<HTMLAnchorElement>('#spec-source-link').href = currentSpec.specs.manualUrl;
-  $('#spec-source-text').textContent = currentSpec.specs.manualLabel[language];
-  document.querySelectorAll<HTMLElement>('#model-switcher small[data-dof]').forEach(badge => {
-    const dof = badge.dataset.dof ?? '6';
-    badge.textContent = language === 'zh' ? `${dof} 轴` : `${dof} DoF`;
+  $('#control-title').textContent = standalone ? copy[language].gripperTitle : copy[language].panelTitle;
+  $('#stage-telemetry').hidden = standalone;
+  $('#toggle-base-frame').hidden = standalone;
+  $('#toggle-tcp-frame').hidden = standalone;
+  $('#reset-pose').hidden = standalone;
+  $('#arm-controls').hidden = standalone;
+  $('#gripper-control').hidden = !gripper;
+  const supported = supportsGripper(currentSpec.id);
+  $('#lite-unavailable').hidden = supported;
+  $('#standalone-hint').hidden = !standalone;
+  $('#return-assembly').hidden = !standalone;
+  const robotSelect = $<HTMLSelectElement>('#robot-select');
+  robotSelect.value = standalone ? 'standalone' : currentSpec.id;
+  if (standalone) robotSelect.setAttribute('aria-describedby', 'standalone-hint');
+  else robotSelect.removeAttribute('aria-describedby');
+  const gripperSelect = $<HTMLSelectElement>('#gripper-select');
+  gripperSelect.disabled = !supported && !standalone;
+  const descriptions = [standalone ? 'standalone-hint' : '', !supported ? 'lite-unavailable' : ''].filter(Boolean);
+  if (descriptions.length) gripperSelect.setAttribute('aria-describedby', descriptions.join(' '));
+  else gripperSelect.removeAttribute('aria-describedby');
+  gripperSelect.querySelectorAll<HTMLOptionElement>('option').forEach(option => {
+    if (getGripper(option.value)) option.disabled = !supported;
+  });
+  gripperSelect.value = standalone ? 'standalone' : gripper?.id ?? '';
+  syncOpeningFields();
+  const assets = [
+    ...(!standalone ? [{ name: currentSpec.name, productUrl: currentSpec.productUrl, category: 'robot' as const }] : []),
+    ...(gripper ? [{ name: gripper.name, productUrl: gripper.productUrl, category: 'accessory' as const }] : []),
+  ] satisfies SceneAsset[];
+  $('#stage-product-links').innerHTML = sceneReady ? assets.map(asset => `<a href="${asset.productUrl}" target="_blank" rel="noopener noreferrer" aria-label="${asset.name} — ${copy[language].official}">${asset.name} ↗</a>`).join('') : '';
+  const inventoryState = sceneReady ? { status: 'ready' as const, assets } : { status: loadKey === 'webgl' ? 'webgl' as const : loadKey === 'failed' ? 'failed' as const : 'loading' as const };
+  renderAssetInventory($('#asset-list'), inventoryState, language);
+  document.querySelectorAll<HTMLButtonElement>('[data-gripper-view]').forEach(button => {
+    button.setAttribute('aria-pressed', String(standalone && button.dataset.gripperView === gripper?.id));
   });
 }
 
@@ -274,7 +361,7 @@ function translate() {
   $('#status-text').textContent = copy[language][statusKey];
   const message = document.querySelector<HTMLElement>('#load-message [data-load-text]');
   if (message) message.textContent = copy[language][loadKey];
-  renderRobotCopy();
+  renderSceneCopy();
 }
 
 function status(key: Key, error = false) {
@@ -285,6 +372,7 @@ function status(key: Key, error = false) {
 
 function setLoadMessage(key: Key) {
   loadKey = key;
+  renderSceneCopy();
   const element = $('#load-message');
   element.hidden = false;
   element.classList.toggle('failure', key !== 'loading');
@@ -294,7 +382,7 @@ function setLoadMessage(key: Key) {
   if (key !== 'loading') {
     $('#retry').addEventListener('click', () => {
       if (key === 'webgl') location.reload();
-      else void loadRobot(currentSpec);
+      else void loadSelection(!model || Boolean(standaloneSelection));
     });
   }
 }
@@ -309,7 +397,7 @@ function formatValue(value: number): string {
 
 function currentForward(): Pose {
   if (!model) throw new Error('Model not loaded');
-  return forward(model, currentSpec.eeLink);
+  return forward(model, assembly.spec.eeLink, toolOffset(assembly.spec.id, assembly.gripper?.id));
 }
 
 function syncJointFields() {
@@ -336,6 +424,7 @@ function syncFKFields() {
 function syncTelemetry() {
   syncJointFields();
   syncFKFields();
+  scene?.requestRender();
 }
 
 function updateSpeedReadout() {
@@ -524,55 +613,79 @@ function setupControls(robot: URDFRobot, spec: RobotSpec) {
     $<HTMLInputElement>(`#joint-range-${i}`).addEventListener('input', change);
     $<HTMLInputElement>(`#joint-number-${i}`).addEventListener('change', change);
   });
-  applyControlAvailability(spec, true);
   syncTelemetry();
 }
 
-function syncModelSwitcherSelection(id: RobotId) {
-  document.querySelectorAll<HTMLButtonElement>('#model-switcher .model-tab').forEach(tab => {
-    tab.setAttribute('aria-selected', String(tab.dataset.robotId === id));
-  });
+function writeUrl() {
+  const url = new URL(window.location.href);
+  const { gripper, opening } = activeSelection();
+  if (standaloneSelection) url.searchParams.set('model', standaloneSelection.gripper.id);
+  else if (assembly.spec.id === DEFAULT_ROBOT_ID) url.searchParams.delete('model');
+  else url.searchParams.set('model', assembly.spec.id);
+  if (!standaloneSelection && gripper) url.searchParams.set('gripper', gripper.id);
+  else url.searchParams.delete('gripper');
+  if (gripper) url.searchParams.set('opening', opening.toFixed(1));
+  else url.searchParams.delete('opening');
+  window.history.replaceState(null, '', url);
 }
 
-async function loadRobot(spec: RobotSpec, syncUrl = false) {
+/** A new selection invalidates both pending loads and their error messages. */
+async function loadSelection(reloadRobot: boolean) {
+  const token = ++selectionToken;
   stopJog(false);
-  currentSpec = spec;
-  model = undefined;
-  solver = undefined;
-  syncModelSwitcherSelection(spec.id);
-  renderRobotCopy();
-  resetTelemetryPlaceholders(spec.dof);
-  $('#joint-list').innerHTML = '';
+  sceneReady = false;
+  const spec = assembly.spec;
+  const { gripper, opening } = activeSelection();
+  const isStandalone = Boolean(standaloneSelection);
+  if (reloadRobot || isStandalone) {
+    model = undefined;
+    solver = undefined;
+    resetTelemetryPlaceholders(spec.dof);
+    $('#joint-list').innerHTML = '';
+  }
+  renderSceneCopy();
   applyControlAvailability(spec, false);
 
   const stage = $('#stage');
   delete stage.dataset.ready;
-  stage.dataset.robot = spec.id;
-
-  if (syncUrl) {
-    const url = new URL(window.location.href);
-    if (spec.id === DEFAULT_ROBOT_ID) url.searchParams.delete('model');
-    else url.searchParams.set('model', spec.id);
-    window.history.replaceState(null, '', url);
-  }
+  if (isStandalone) delete stage.dataset.robot;
+  else stage.dataset.robot = spec.id;
+  stage.dataset.mode = isStandalone ? 'gripper' : 'robot';
+  if (gripper) stage.dataset.gripper = gripper.id;
+  else delete stage.dataset.gripper;
 
   if (!scene) return;
   setLoadMessage('loading');
   status('solverReady');
 
   try {
-    const loaded = await scene.load(spec);
-    if (!loaded) return; // Superseded by a newer model selection
-    model = loaded;
-    setJoints(model, homeJoints(spec.dof));
-    solver = new IKSolver(model, spec.eeLink);
-    setupControls(model, spec);
+    if (isStandalone) {
+      scene.clear();
+    } else if (reloadRobot || !model) {
+      const loaded = await scene.load(spec);
+      if (!loaded || token !== selectionToken) return;
+      model = loaded;
+      setJoints(model, homeJoints(spec.dof));
+      // Construct the arm-only IK tree before attaching the separate gripper.
+      solver = new IKSolver(model, spec.eeLink);
+      setupControls(model, spec);
+      applyControlAvailability(spec, false);
+    }
+    if (!(await scene.setGripper(gripper, opening, isStandalone ? undefined : spec)) || token !== selectionToken) return;
+    if (!isStandalone) {
+      const offset = toolOffset(spec.id, gripper?.id);
+      solver!.setToolOffset(offset);
+      scene.setToolOffset(offset);
+      syncTelemetry();
+    }
+    sceneReady = true;
+    renderSceneCopy();
+    applyControlAvailability(spec, !isStandalone);
     $('#load-message').hidden = true;
     status('solverReady');
     stage.dataset.ready = 'true';
   } catch (error) {
-    console.error(error);
-    if (currentSpec.id === spec.id) setLoadMessage('failed');
+    if (token === selectionToken) { console.error(error); setLoadMessage('failed'); }
   }
 }
 
@@ -594,13 +707,62 @@ function setPanelOpen(open: boolean) {
   $('#control-expand').setAttribute('aria-expanded', String(open));
 }
 
-document.querySelectorAll<HTMLButtonElement>('#model-switcher .model-tab').forEach(tab => {
-  tab.addEventListener('click', () => {
-    const nextSpec = getRobotSpec(tab.dataset.robotId);
-    if (nextSpec.id === currentSpec.id && model) return;
-    void loadRobot(nextSpec, true);
+$('#robot-select').addEventListener('change', event => {
+  const nextSpec = getRobotSpec((event.target as HTMLSelectElement).value);
+  if (!standaloneSelection && nextSpec.id === assembly.spec.id && sceneReady) return;
+  assembly.spec = nextSpec;
+  standaloneSelection = undefined;
+  if (!supportsGripper(nextSpec.id)) { assembly.gripper = undefined; assembly.opening = 0; }
+  writeUrl();
+  void loadSelection(true);
+});
+
+document.querySelectorAll<HTMLButtonElement>('[data-gripper-view]').forEach(button => {
+  button.addEventListener('click', () => {
+    const next = getGripper(button.dataset.gripperView)!;
+    if (standaloneSelection?.gripper.id === next.id) {
+      if (sceneReady) return;
+    } else {
+      standaloneSelection = { gripper: next, opening: assembly.gripper?.id === next.id ? assembly.opening : next.maxMm };
+    }
+    writeUrl();
+    void loadSelection(true);
   });
 });
+
+$('#return-assembly').addEventListener('click', () => {
+  if (!standaloneSelection) return;
+  standaloneSelection = undefined;
+  writeUrl();
+  void loadSelection(true);
+});
+
+$('#gripper-select').addEventListener('change', event => {
+  const next = getGripper((event.target as HTMLSelectElement).value);
+  if (next && !supportsGripper(assembly.spec.id)) return;
+  const wasStandalone = Boolean(standaloneSelection);
+  if (!wasStandalone && next?.id === assembly.gripper?.id && sceneReady) return;
+  if (next?.id !== assembly.gripper?.id) assembly.opening = next?.maxMm ?? 0;
+  assembly.gripper = next;
+  standaloneSelection = undefined;
+  writeUrl();
+  void loadSelection(wasStandalone || !model);
+});
+
+function changeOpening(event: Event) {
+  const selection = activeSelection();
+  if (!selection.gripper || !sceneReady) return;
+  const value = numberValue(event.target as HTMLInputElement);
+  if (!validOpening(selection.gripper, value) || !scene?.setGripperOpening(value)) {
+    syncOpeningFields(); status('invalid', true); return;
+  }
+  selection.opening = Math.round(value * 10) / 10;
+  syncOpeningFields();
+  status('solverReady');
+  writeUrl();
+}
+$('#opening-range').addEventListener('input', changeOpening);
+$('#opening-number').addEventListener('change', changeOpening);
 
 $('#language').addEventListener('click', () => { language = language === 'zh' ? 'en' : 'zh'; translate(); });
 $('#control-toggle').addEventListener('click', () => setPanelOpen(false));
@@ -622,12 +784,11 @@ $('#toggle-tcp-frame').addEventListener('click', () => {
 });
 $('#reset-pose').addEventListener('click', () => {
   if (!model) return;
-  stopJog(false); setJoints(model, homeJoints(currentSpec.dof)); syncTelemetry(); status('solverReady');
+  stopJog(false); setJoints(model, homeJoints(assembly.spec.dof)); syncTelemetry(); status('solverReady');
 });
 
 bindJogButtons();
 updateSpeedReadout();
-syncModelSwitcherSelection(currentSpec.id);
 translate();
 setLoadMessage('loading');
 
@@ -636,9 +797,23 @@ function sceneCanvas(): HTMLCanvasElement { return $<HTMLCanvasElement>('#canvas
 async function start() {
   try {
     scene = new RobotScene($('#canvas-area'));
-    sceneCanvas().addEventListener('webglcontextlost', event => { event.preventDefault(); setLoadMessage('webgl'); });
+    sceneCanvas().addEventListener('webglcontextlost', event => {
+      event.preventDefault();
+      ++selectionToken;
+      scene?.clear();
+      scene = undefined;
+      sceneReady = false;
+      model = undefined;
+      solver = undefined;
+      stopJog(false);
+      delete $('#stage').dataset.ready;
+      applyControlAvailability(assembly.spec, false);
+      setLoadMessage('webgl');
+    });
   }
   catch (error) { console.error(error); setLoadMessage('webgl'); return; }
-  await loadRobot(currentSpec, false);
+  if ((initialParams.has('gripper') && (standaloneSelection || !initialGripper)) ||
+      (initialOpening !== null && (!initialGripper || initialOpening.trim() === '' || !validOpening(initialGripper, Number(initialOpening))))) writeUrl();
+  await loadSelection(true);
 }
 void start();
