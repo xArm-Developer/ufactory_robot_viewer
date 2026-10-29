@@ -9,26 +9,53 @@ export type CartesianAxis = 'x' | 'y' | 'z' | 'roll' | 'pitch' | 'yaw';
 export interface Pose { position: Vector3; quaternion: Quaternion }
 export interface SolveResult { ok: boolean; reason: 'converged' | 'invalid' | 'unreachable'; positionError?: number; rotationError?: number }
 
+export function homeJoints(dof: number): number[] {
+  return Array.from({ length: dof }, () => 0);
+}
+
+export function jointNames(robot: URDFRobot): string[] {
+  const names: string[] = [];
+  for (let i = 1; `joint${i}` in robot.joints; i++) {
+    names.push(`joint${i}`);
+  }
+  return names;
+}
+
+export function resolveEeLink(robot: URDFRobot, eeLink?: string): string {
+  if (eeLink) {
+    if (!(eeLink in robot.links)) throw new Error(`URDF is missing ${eeLink}`);
+    return eeLink;
+  }
+  if ('link_eef' in robot.links) return 'link_eef';
+  const fallback = `link${jointNames(robot).length}`;
+  if (!(fallback in robot.links)) throw new Error(`URDF is missing ${fallback}`);
+  return fallback;
+}
+
 export function jointValues(robot: URDFRobot): number[] {
-  return JOINT_NAMES.map(name => robot.joints[name].angle);
+  return jointNames(robot).map(name => robot.joints[name].angle);
 }
 
 export function limits(robot: URDFRobot): { min: number; max: number }[] {
-  return JOINT_NAMES.map(name => ({ min: robot.joints[name].limit.lower, max: robot.joints[name].limit.upper }));
+  return jointNames(robot).map(name => ({ min: robot.joints[name].limit.lower, max: robot.joints[name].limit.upper }));
 }
 
 export function setJoints(robot: URDFRobot, values: readonly number[]): boolean {
-  if (values.length !== 6 || values.some((value, i) => !Number.isFinite(value) || value < limits(robot)[i].min || value > limits(robot)[i].max)) return false;
-  values.forEach((value, i) => robot.setJointValue(JOINT_NAMES[i], value));
+  const names = jointNames(robot);
+  const jointLimits = limits(robot);
+  if (values.length !== names.length || values.some((value, i) => !Number.isFinite(value) || value < jointLimits[i].min || value > jointLimits[i].max)) {
+    return false;
+  }
+  values.forEach((value, i) => robot.setJointValue(names[i], value));
   robot.updateMatrixWorld(true);
   return true;
 }
 
-/** Pose of link_eef relative to link_base, independent of the scene transform. */
-export function forward(robot: URDFRobot): Pose {
+/** Pose of end-effector flange link relative to link_base, independent of the scene transform. */
+export function forward(robot: URDFRobot, eeLink?: string): Pose {
   robot.updateMatrixWorld(true);
   const base = robot.links.link_base;
-  const end = robot.links.link_eef;
+  const end = robot.links[resolveEeLink(robot, eeLink)];
   const relative = new Matrix4().copy(base.matrixWorld).invert().multiply(end.matrixWorld);
   const position = new Vector3();
   const quaternion = new Quaternion();
@@ -75,12 +102,15 @@ export class IKSolver {
   private root: Joint;
   private goal: Goal;
   private solver: Solver;
-  constructor(private robot: URDFRobot) {
+  private eeLink: string;
+
+  constructor(private robot: URDFRobot, eeLink?: string) {
+    this.eeLink = resolveEeLink(robot, eeLink);
     // The library's declaration calls this a Link, but the URDF robot root is a Joint.
     this.root = URDFUtils.urdfRobotToIKRoot(robot, false) as unknown as Joint;
     this.root.clearDoF(); // The robot base must never move during IK.
-    const end = this.root.find(frame => frame.name === 'link_eef') as Link;
-    if (!end) throw new Error('URDF is missing link_eef');
+    const end = this.root.find(frame => frame.name === this.eeLink) as Link;
+    if (!end) throw new Error(`URDF is missing ${this.eeLink}`);
     this.goal = new Goal();
     this.goal.makeClosure(end);
     this.solver = new Solver(this.root);
@@ -95,27 +125,58 @@ export class IKSolver {
     const numbers = [...target.position.toArray(), ...target.quaternion.toArray()];
     if (!numbers.every(Number.isFinite) || target.quaternion.lengthSq() < 1e-12) return { ok: false, reason: 'invalid' };
     const previous = jointValues(this.robot);
-    URDFUtils.setIKFromUrdf(this.root as unknown as Link, this.robot);
+    const jointLimits = limits(this.robot);
+    const normalizedTargetQuat = target.quaternion.clone().normalize();
+
     this.robot.updateMatrixWorld(true);
     const base = this.robot.links.link_base;
     const basePosition = base.getWorldPosition(new Vector3());
     const baseQuaternion = base.getWorldQuaternion(new Quaternion());
     const worldPosition = target.position.clone().applyQuaternion(baseQuaternion).add(basePosition);
-    const worldQuaternion = baseQuaternion.multiply(target.quaternion.clone().normalize());
-    this.goal.setPosition(worldPosition.x, worldPosition.y, worldPosition.z);
-    this.goal.setQuaternion(worldQuaternion.x, worldQuaternion.y, worldQuaternion.z, worldQuaternion.w);
-    const status = this.solver.solve();
-    URDFUtils.setUrdfFromIK(this.robot, this.root as unknown as Link);
-    const actual = forward(this.robot);
-    const positionError = actual.position.distanceTo(target.position);
-    const rotationError = actual.quaternion.angleTo(target.quaternion.clone().normalize());
-    const values = jointValues(this.robot);
-    const withinLimits = values.every((value, i) => Number.isFinite(value) && value >= limits(this.robot)[i].min - 1e-6 && value <= limits(this.robot)[i].max + 1e-6);
-    const converged = status.every(item => item === SOLVE_STATUS.CONVERGED) || (positionError <= 0.00035 && rotationError <= 0.006);
-    if (converged && withinLimits && positionError <= 0.001 && rotationError <= Math.PI / 180) {
-      return { ok: true, reason: 'converged', positionError, rotationError };
+    const worldQuaternion = baseQuaternion.clone().multiply(normalizedTargetQuat);
+
+    const trySolve = (seed: readonly number[]) => {
+      setJoints(this.robot, seed);
+      URDFUtils.setIKFromUrdf(this.root as unknown as Link, this.robot);
+      this.goal.setPosition(worldPosition.x, worldPosition.y, worldPosition.z);
+      this.goal.setQuaternion(worldQuaternion.x, worldQuaternion.y, worldQuaternion.z, worldQuaternion.w);
+      const status = this.solver.solve();
+      URDFUtils.setUrdfFromIK(this.robot, this.root as unknown as Link);
+      const actual = forward(this.robot, this.eeLink);
+      const positionError = actual.position.distanceTo(target.position);
+      const rotationError = actual.quaternion.angleTo(normalizedTargetQuat);
+      const values = jointValues(this.robot);
+      const withinLimits = values.every(
+        (value, i) => Number.isFinite(value) && value >= jointLimits[i].min - 1e-6 && value <= jointLimits[i].max + 1e-6,
+      );
+      const converged =
+        status.every(item => item === SOLVE_STATUS.CONVERGED) ||
+        (positionError <= 0.00035 && rotationError <= 0.006);
+      const ok = converged && withinLimits && positionError <= 0.001 && rotationError <= Math.PI / 180;
+      return { ok, positionError, rotationError };
+    };
+
+    const primary = trySolve(previous);
+    if (primary.ok) {
+      return { ok: true, reason: 'converged', positionError: primary.positionError, rotationError: primary.rotationError };
     }
+
+    // Escape inline spherical-wrist singularity (wrist pitch ≈ 0 on 6/7-DoF arms such as 850 Roll-)
+    const dof = previous.length;
+    if (dof >= 6 && Math.abs(previous[dof - 2]) < 1e-2) {
+      for (const sign of [1, -1] as const) {
+        const seed = [...previous];
+        seed[dof - 3] = MathUtils.clamp(previous[dof - 3] + (sign * Math.PI) / 2, jointLimits[dof - 3].min, jointLimits[dof - 3].max);
+        seed[dof - 2] = MathUtils.clamp(sign * 0.02, jointLimits[dof - 2].min, jointLimits[dof - 2].max);
+        seed[dof - 1] = MathUtils.clamp(previous[dof - 1] - (sign * Math.PI) / 2, jointLimits[dof - 1].min, jointLimits[dof - 1].max);
+        const retry = trySolve(seed);
+        if (retry.ok) {
+          return { ok: true, reason: 'converged', positionError: retry.positionError, rotationError: retry.rotationError };
+        }
+      }
+    }
+
     setJoints(this.robot, previous);
-    return { ok: false, reason: 'unreachable', positionError, rotationError };
+    return { ok: false, reason: 'unreachable', positionError: primary.positionError, rotationError: primary.rotationError };
   }
 }

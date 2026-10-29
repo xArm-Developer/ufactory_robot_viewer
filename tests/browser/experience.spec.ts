@@ -1,11 +1,13 @@
 import { test, expect, devices } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 
-const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as { samples: { joints: number[]; position: number[] }[] };
-const zeroSample = fixtures.samples[1];
+interface FixtureSample { joints: number[]; position: number[] }
+const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as {
+  robots: Record<'xarm5' | 'xarm6' | 'xarm7' | 'uf850' | 'lite6', { dof: number; samples: FixtureSample[] }>;
+};
 
-const ready = async (page: import('@playwright/test').Page) => {
-  await page.goto('/');
+const ready = async (page: import('@playwright/test').Page, path = '/') => {
+  await page.goto(path);
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
 };
 
@@ -18,17 +20,13 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await ready(page);
   expect(meshes).toHaveLength(7);
   await expect(page.locator('h1')).toHaveText('xArm 6');
+  await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm6');
   await expect(page.locator('#control-card')).toBeVisible();
   await expect(page.locator('#control-expand')).toBeHidden();
   await expect(page.locator('#pose-panel')).toBeVisible();
   await expect(page.locator('#joint-panel')).toBeHidden();
 
-  // Verify Target End Pose section and 3D drag gizmo buttons are completely removed
-  await expect(page.locator('#position-fields')).toHaveCount(0);
-  await expect(page.locator('#rotation-fields')).toHaveCount(0);
-  await expect(page.locator('#apply-target')).toHaveCount(0);
-  await expect(page.locator('#use-current')).toHaveCount(0);
-  await expect(page.locator('[data-mode]')).toHaveCount(0);
+  const zeroSample = fixtures.robots.xarm6.samples[0];
 
   // Verify live pose & joint telemetry is overlaid on the 3D stage layer and starts at all-zero joints
   await expect(page.locator('#stage #stage-telemetry')).toBeVisible();
@@ -165,6 +163,101 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   expect(errors).toEqual([]);
 });
 
+test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 gray disabled Roll and URL deep-linking', async ({ page }) => {
+  test.setTimeout(180_000);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  const loadedGlbs: string[] = [];
+  const errors: string[] = [];
+  page.on('response', response => { if (response.url().endsWith('.glb') && response.ok()) loadedGlbs.push(response.url()); });
+  page.on('pageerror', error => errors.push(error.message));
+
+  await ready(page);
+  await expect(page.locator('#model-switcher .model-tab-name')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
+  await page.locator('#toggle-tcp-frame').click();
+  await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
+
+  // 1. Switch to xArm 5 (5 DoF, 6 GLBs, Roll+ / Roll- disabled with solid gray background)
+  loadedGlbs.length = 0;
+  await page.locator('[data-robot-id="xarm5"]').click();
+  await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm5');
+  await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
+  expect(loadedGlbs).toHaveLength(6);
+  expect(page.url()).toContain('model=xarm5');
+  await expect(page.locator('h1')).toHaveText('xArm 5');
+  await expect(page.locator('#stage-joint-fields .telemetry-cell')).toHaveCount(5);
+  await expect(page.locator('#joint-list .joint-row')).toHaveCount(5);
+  await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
+
+  const rollPlus = page.locator('[data-jog-axis="roll"][data-jog-dir="1"]');
+  const rollMinus = page.locator('[data-jog-axis="roll"][data-jog-dir="-1"]');
+  const pitchPlus = page.locator('[data-jog-axis="pitch"][data-jog-dir="1"]');
+  await expect(rollPlus).toBeDisabled();
+  await expect(rollMinus).toBeDisabled();
+  await expect(pitchPlus).toBeEnabled();
+  const [rollBg, pitchBg] = await Promise.all([
+    rollPlus.evaluate(el => getComputedStyle(el).backgroundColor),
+    pitchPlus.evaluate(el => getComputedStyle(el).backgroundColor),
+  ]);
+  expect(rollBg).not.toBe(pitchBg);
+  expect(rollBg).toBe('rgb(227, 232, 228)');
+
+  const xarm5HomeX = Number(await page.locator('#fk-0').innerText());
+  expect(xarm5HomeX).toBeCloseTo(fixtures.robots.xarm5.samples[0].position[0] * 1000, 1);
+  await page.locator('[data-jog-axis="x"][data-jog-dir="1"]').click();
+  expect(Number(await page.locator('#fk-0').innerText()) - xarm5HomeX).toBeCloseTo(1, 1);
+  await page.locator('[data-jog-axis="yaw"][data-jog-dir="1"]').click();
+  expect(Number(await page.locator('#fk-5').innerText())).toBeCloseTo(1, 1);
+
+  // 2. Switch to xArm 7 (7 DoF, 8 GLBs, Roll± re-enabled, 7th joint active)
+  loadedGlbs.length = 0;
+  await page.locator('[data-robot-id="xarm7"]').click();
+  await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm7');
+  await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
+  expect(loadedGlbs).toHaveLength(8);
+  await expect(page.locator('h1')).toHaveText('xArm 7');
+  await expect(page.locator('#stage-joint-fields .telemetry-cell')).toHaveCount(7);
+  await expect(page.locator('#joint-list .joint-row')).toHaveCount(7);
+  await expect(rollPlus).toBeEnabled();
+  await expect(rollMinus).toBeEnabled();
+
+  await page.locator('#joint-tab').click();
+  await page.locator('#joint-number-6').fill('25');
+  await page.locator('#joint-number-6').dispatchEvent('change');
+  await expect(page.locator('#stage-joint-6')).toHaveText('25.00');
+  await page.locator('#cartesian-tab').click();
+  const xarm7Z = Number(await page.locator('#fk-2').innerText());
+  await page.locator('[data-jog-axis="z"][data-jog-dir="1"]').click();
+  expect(Number(await page.locator('#fk-2').innerText()) - xarm7Z).toBeCloseTo(1, 1);
+
+  // 3. Switch to 850 (named "850", 7 GLBs, inline wrist Roll- from zero pose, 850 mm / ±0.02 mm specs)
+  loadedGlbs.length = 0;
+  await page.locator('[data-robot-id="uf850"]').click();
+  await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'uf850');
+  await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
+  expect(loadedGlbs).toHaveLength(7);
+  await expect(page.locator('h1')).toHaveText('850');
+  await expect(page.locator('#spec-eyebrow')).toHaveText('850 / AT A GLANCE');
+  await expect(page.locator('#spec-reach')).toContainText('850');
+  await expect(page.locator('#spec-repeatability')).toContainText('±0.02');
+  expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.robots.uf850.samples[0].position[0] * 1000, 1);
+
+  await rollMinus.click();
+  await expect(page.locator('#status-text')).toHaveText('目标已求解');
+  expect(Math.abs(Number(await page.locator('#fk-3').innerText()))).toBeCloseTo(179, 1);
+
+  // 4. Direct URL load of Lite 6 (?model=lite6, 7 GLBs, 440 mm / 0.6 kg specs)
+  loadedGlbs.length = 0;
+  await ready(page, '/?model=lite6');
+  await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'lite6');
+  expect(loadedGlbs).toHaveLength(7);
+  await expect(page.locator('h1')).toHaveText('Lite 6');
+  await expect(page.locator('#spec-reach')).toContainText('440');
+  await expect(page.locator('#spec-payload')).toContainText('0.6');
+  expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.robots.lite6.samples[0].position[0] * 1000, 1);
+
+  expect(errors).toEqual([]);
+});
+
 test('desktop orbit, zoom, pan and view reset', async ({ page }) => {
   test.setTimeout(180_000);
   await page.setViewportSize({ width: 1440, height: 1000 });
@@ -212,7 +305,7 @@ test('desktop orbit, zoom, pan and view reset', async ({ page }) => {
   expect(changedFraction).toBeLessThan(0.005);
 });
 
-test('touch-size layout loads with stage telemetry, coordinate frame toggles, and joint/jog input', async ({ browser }) => {
+test('touch-size layout loads with model switcher, 7-joint telemetry, coordinate frames, and joint/jog input without overflow', async ({ browser }) => {
   const context = await browser.newContext({ ...devices['iPhone 13'] });
   const page = await context.newPage();
   await ready(page);
@@ -223,6 +316,13 @@ test('touch-size layout loads with stage telemetry, coordinate frame toggles, an
   await expect(page.locator('#toggle-base-frame')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#toggle-tcp-frame').click();
   await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
+
+  // Switch to 7-DoF xArm 7 on mobile viewport and confirm zero horizontal overflow
+  await page.locator('[data-robot-id="xarm7"]').click();
+  await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm7');
+  await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
+  await expect(page.locator('#stage-joint-fields .telemetry-cell')).toHaveCount(7);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.locator('#joint-tab').click();
   await page.locator('#joint-number-0').fill('15');

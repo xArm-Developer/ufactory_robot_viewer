@@ -112,11 +112,70 @@ a {
   border-radius: 50%;
   background: #e87546;
 }
+.model-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  margin-top: 20px;
+}
+.model-bar-label {
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: 0.16em;
+  color: #6b7a72;
+  white-space: nowrap;
+}
+.model-switcher {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 6px;
+  flex: 1;
+  max-width: 680px;
+}
+.model-tab {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  min-height: 40px;
+  padding: 8px 10px;
+  border: 1px solid #d9e1d9;
+  background: #fff;
+  color: #46574e;
+  font-size: 12px;
+  font-weight: 750;
+  border-radius: 2px;
+  transition: border-color 0.15s ease, background 0.15s ease, color 0.15s ease;
+}
+.model-tab:hover {
+  border-color: #687a70;
+  color: #1f2826;
+}
+.model-tab small {
+  font-size: 9px;
+  font-weight: 800;
+  padding: 2px 5px;
+  background: #edf2ed;
+  color: #718278;
+  letter-spacing: 0.04em;
+  border-radius: 2px;
+  white-space: nowrap;
+}
+.model-tab[aria-selected="true"] {
+  background: #25332e;
+  border-color: #25332e;
+  color: #fff;
+}
+.model-tab[aria-selected="true"] small {
+  background: #e87546;
+  color: #fff;
+}
 .experience {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 400px;
   gap: 14px;
-  margin-top: 24px;
+  margin-top: 12px;
   align-items: start;
   scroll-margin-top: 24px;
 }
@@ -802,7 +861,10 @@ a {
   color: #fff;
 }
 .jog-btn:disabled {
-  opacity: 0.45;
+  background: #e3e8e4;
+  border-color: #cbd3cd;
+  color: #8c9990;
+  opacity: 1;
   cursor: not-allowed;
 }
 .cartesian-description {
@@ -995,11 +1057,32 @@ input:focus-visible {
   .brand-mark {
     font-size: 24px;
   }
+  .model-bar {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 8px;
+    margin-top: 14px;
+  }
+  .model-switcher {
+    max-width: none;
+    gap: 4px;
+  }
+  .model-tab {
+    flex-direction: column;
+    gap: 3px;
+    min-height: 44px;
+    padding: 6px 3px;
+    font-size: 11px;
+  }
+  .model-tab small {
+    font-size: 8px;
+    padding: 1px 4px;
+  }
   .experience {
     display: flex;
     flex-direction: column;
     gap: 10px;
-    margin-top: 16px;
+    margin-top: 10px;
   }
   .stage,
   .control-shell,

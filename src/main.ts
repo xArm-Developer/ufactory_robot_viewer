@@ -3,7 +3,7 @@ import { MathUtils, Vector3 } from 'three';
 import {
   forward,
   fromRPY,
-  HOME,
+  homeJoints,
   IKSolver,
   jogVelocity,
   jointValues,
@@ -14,6 +14,7 @@ import {
   type CartesianAxis,
   type Pose,
 } from './kinematics';
+import { DEFAULT_ROBOT_ID, getRobotSpec, ROBOTS, type RobotId, type RobotSpec } from './robots';
 import { RobotScene } from './scene';
 import type { URDFRobot } from 'urdf-loader';
 
@@ -24,48 +25,46 @@ const LONG_PRESS_MS = 220;
 
 const copy = {
   zh: {
-    navExplore: '探索 xArm 6', navControl: '运动控制',
+    navControl: '运动控制',
+    modelBarLabel: '机械臂型号',
     loading: '正在加载 3D 模型…', ready: '模型已就绪', failed: '模型加载失败。请检查网络连接或刷新页面。',
     webgl: '无法启动 3D 视图。请确认浏览器支持 WebGL，然后刷新页面。', retry: '刷新页面',
     interaction: '拖动旋转 · 滚轮缩放 · 右键平移', interactionMobile: '单指旋转 · 双指缩放 / 平移',
     baseAxes: '基坐标系', tcpAxes: 'TCP 坐标系', resetView: '复位视角',
-    modelVariant: '1305 版本 · 交互式模型',
     telemetryPose: '末端位姿', telemetryJoints: '关节角度',
     panelTitle: '运动控制', panelSub: 'LIVE CONTROL · 实时运动学', controlButton: '运动控制',
     jointTitle: '关节控制', cartesianTitle: '笛卡尔控制', hide: '收起', show: '展开',
-    jointIntro: '调整六个关节，实时更新 3D 模型与舞台位姿读数。',
     jogTitle: '点动与连续控制', jogHint: '点按步进，长按连续运动（基坐标系 link_base · 固定轴 RPY）。',
     speed: '速度', posStep: '位置步进', rotStep: '姿态步进',
     position: '位置', orientation: '姿态',
     resetPose: '复位姿态', solverReady: '就绪', solverConverged: '目标已求解',
     solverFailed: '无法收敛到目标；已保留上一次有效姿态。', invalid: '请输入有效且在范围内的数值。',
-    figure: '探索每一个细节', figureText: '旋转视角、调整关节，或通过笛卡尔点动直观了解机械臂的运动方式。',
-    specTitle: '为创造而生。', specText: '六个自由度，让运动的可能性延伸至三维空间。', reach: '工作半径', payload: '负载', repeatability: '重复定位精度',
-    specSource: '参数来源：UFACTORY xArm 用户手册', noteTitle: '关于这个演示',
+    figure: '探索每一个细节', figureText: '切换机型、旋转视角、调整关节，或通过笛卡尔点动直观了解机械臂的运动方式。',
+    specTitle: '为创造而生。', reach: '工作半径', payload: '负载', repeatability: '重复定位精度',
+    noteTitle: '关于这个演示',
     noteText: '本页面仅演示运动学，不连接真实设备，也不包含碰撞检测、动力学或末端工具。实际使用请以官方文档和设备配置为准。',
-    footer: '独立产品探索项目 · xArm 是 UFACTORY 的商标',
+    footer: '独立产品探索项目 · UFACTORY 与 xArm 是其各自所有者的商标',
   },
   en: {
-    navExplore: 'Explore xArm 6', navControl: 'Motion controls',
+    navControl: 'Motion controls',
+    modelBarLabel: 'ROBOT MODEL',
     loading: 'Loading 3D model…', ready: 'Model ready', failed: 'Could not load the model. Check your connection or reload the page.',
     webgl: 'The 3D view could not start. Check WebGL support in your browser and reload the page.', retry: 'Reload page',
     interaction: 'Drag to rotate · Scroll to zoom · Right-drag to pan', interactionMobile: 'One finger to rotate · Two fingers to zoom / pan',
     baseAxes: 'Base frame', tcpAxes: 'TCP frame', resetView: 'Reset view',
-    modelVariant: '1305 VARIANT · INTERACTIVE MODEL',
     telemetryPose: 'TCP pose', telemetryJoints: 'Joint angles',
     panelTitle: 'Motion controls', panelSub: 'LIVE CONTROL · KINEMATICS', controlButton: 'Motion controls',
     jointTitle: 'Joint control', cartesianTitle: 'Cartesian control', hide: 'Hide', show: 'Show',
-    jointIntro: 'Adjust the six joints to update the 3D arm and live stage telemetry.',
     jogTitle: 'Jog & continuous control', jogHint: 'Tap to step, hold for continuous motion (base frame link_base · fixed-axis RPY).',
     speed: 'Speed', posStep: 'Position step', rotStep: 'Attitude step',
     position: 'Position', orientation: 'Orientation',
     resetPose: 'Reset pose', solverReady: 'Ready', solverConverged: 'Target solved',
     solverFailed: 'Could not reach the target; the last valid pose is preserved.', invalid: 'Enter a valid value within the allowed range.',
-    figure: 'Explore every detail', figureText: 'Change the view, move each joint, or jog in Cartesian space to see how the arm moves.',
-    specTitle: 'Made to create.', specText: 'Six degrees of freedom open up possibilities in three-dimensional space.', reach: 'Reach', payload: 'Payload', repeatability: 'Repeatability',
-    specSource: 'Source: UFACTORY xArm user manual', noteTitle: 'About this demo',
+    figure: 'Explore every detail', figureText: 'Switch models, change the view, move each joint, or jog in Cartesian space to see how the arm moves.',
+    specTitle: 'Made to create.', reach: 'Reach', payload: 'Payload', repeatability: 'Repeatability',
+    noteTitle: 'About this demo',
     noteText: 'This is a kinematics demonstration. It does not connect to hardware or include collision detection, dynamics, or end tools. Refer to the official documentation and your device configuration for actual use.',
-    footer: 'Independent product exploration · xArm is a trademark of UFACTORY',
+    footer: 'Independent product exploration · UFACTORY and xArm are trademarks of their respective owners',
   },
 } as const;
 type Key = keyof typeof copy.zh;
@@ -74,30 +73,40 @@ const poseCellsHtml = ['X', 'Y', 'Z', 'Roll', 'Pitch', 'Yaw']
   .map((name, i) => `<div class="telemetry-cell"><span>${name}</span><div><output id="fk-${i}">—</output><small>${i < 3 ? 'mm' : '°'}</small></div></div>`)
   .join('');
 
-const jointCellsHtml = Array.from({ length: 6 }, (_, i) =>
-  `<div class="telemetry-cell"><span>J${i + 1}</span><div><output id="stage-joint-${i}">—</output><small>°</small></div></div>`,
+function buildJointTelemetryHtml(dof: number): string {
+  return Array.from({ length: dof }, (_, i) =>
+    `<div class="telemetry-cell"><span>J${i + 1}</span><div><output id="stage-joint-${i}">—</output><small>°</small></div></div>`,
+  ).join('');
+}
+
+const modelTabsHtml = ROBOTS.map(spec =>
+  `<button type="button" class="model-tab" role="tab" data-robot-id="${spec.id}" aria-selected="false"><span class="model-tab-name">${spec.name}</span><small data-dof="${spec.dof}">${spec.dof} 轴</small></button>`,
 ).join('');
 
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="site-header">
     <a class="brand" href="#top" aria-label="UF Robots home"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOTS <small> / STUDIO</small></span></a>
-    <nav class="desktop-nav"><a href="#explore" data-t="navExplore"></a><a href="#controls" id="nav-controls" data-t="navControl"></a></nav>
+    <nav class="desktop-nav"><a href="#explore" id="nav-explore"></a><a href="#controls" id="nav-controls" data-t="navControl"></a></nav>
     <button class="language" id="language" type="button" aria-label="Switch language"><span class="language-icon">◎</span> <span id="language-label">EN</span></button>
   </header>
   <main id="top">
+    <div class="model-bar page-width">
+      <span class="model-bar-label" data-t="modelBarLabel"></span>
+      <div class="model-switcher" id="model-switcher" role="tablist" aria-label="Robot models">${modelTabsHtml}</div>
+    </div>
     <section class="experience page-width" id="explore" aria-label="xArm 6 interactive experience">
       <div class="stage" id="stage">
         <div class="stage-top">
-          <div class="stage-title"><span class="stage-overline" data-t="modelVariant"></span><h1>xArm 6</h1></div>
+          <div class="stage-title"><span class="stage-overline" id="stage-overline"></span><h1 id="stage-heading">xArm 6</h1></div>
           <div class="stage-telemetry" id="stage-telemetry">
             <div class="telemetry-section">
               <div class="telemetry-head"><span data-t="telemetryPose"></span><small>BASE · mm / °</small></div>
               <div class="telemetry-grid" id="fk-fields" aria-live="off">${poseCellsHtml}</div>
             </div>
             <div class="telemetry-section">
-              <div class="telemetry-head"><span data-t="telemetryJoints"></span><small>J1–J6 · °</small></div>
-              <div class="telemetry-grid" id="stage-joint-fields" aria-live="off">${jointCellsHtml}</div>
+              <div class="telemetry-head"><span data-t="telemetryJoints"></span><small id="telemetry-joints-range">J1–J6 · °</small></div>
+              <div class="telemetry-grid" id="stage-joint-fields" aria-live="off">${buildJointTelemetryHtml(6)}</div>
             </div>
           </div>
         </div>
@@ -135,7 +144,7 @@ app.innerHTML = `
             <button id="cartesian-tab" class="control-tab" role="tab" type="button" aria-selected="true" aria-controls="pose-panel"><span data-t="cartesianTitle"></span><small>IK</small></button>
           </div>
           <div id="joint-panel" role="tabpanel" aria-labelledby="joint-tab" hidden>
-            <p class="panel-description" data-t="jointIntro"></p>
+            <p class="panel-description" id="joint-intro"></p>
             <div class="joint-list" id="joint-list"></div>
           </div>
           <div id="pose-panel" role="tabpanel" aria-labelledby="cartesian-tab">
@@ -197,9 +206,9 @@ app.innerHTML = `
       </aside>
     </section>
     <section class="intro-strip page-width"><div class="section-index">01 <span>/</span> EXPERIENCE</div><h2 data-t="figure"></h2><p data-t="figureText"></p></section>
-    <section class="spec-section"><div class="page-width spec-inner"><div class="spec-copy"><div class="eyebrow light-eyebrow"><span class="orange-dot"></span> XARM 6 / AT A GLANCE</div><h2 data-t="specTitle"></h2><p data-t="specText"></p></div>
-      <div class="spec-grid"><div><strong>700 <small>mm</small></strong><span data-t="reach"></span></div><div><strong>5 <small>kg</small></strong><span data-t="payload"></span></div><div><strong>±0.1 <small>mm</small></strong><span data-t="repeatability"></span></div></div>
-      <a class="source-link" href="https://www.ufactory.cc/wp-content/uploads/2024/02/xArm-User-Manual-V2.3.0.pdf" target="_blank" rel="noopener noreferrer"><span data-t="specSource"></span> ↗</a></div></section>
+    <section class="spec-section"><div class="page-width spec-inner"><div class="spec-copy"><div class="eyebrow light-eyebrow"><span class="orange-dot"></span> <span id="spec-eyebrow">XARM 6 / AT A GLANCE</span></div><h2 data-t="specTitle"></h2><p id="spec-description"></p></div>
+      <div class="spec-grid"><div><strong id="spec-reach">700 <small>mm</small></strong><span data-t="reach"></span></div><div><strong id="spec-payload">5 <small>kg</small></strong><span data-t="payload"></span></div><div><strong id="spec-repeatability">±0.1 <small>mm</small></strong><span data-t="repeatability"></span></div></div>
+      <a class="source-link" id="spec-source-link" href="https://www.ufactory.cc/wp-content/uploads/2024/02/xArm-User-Manual-V2.3.0.pdf" target="_blank" rel="noopener noreferrer"><span id="spec-source-text"></span> ↗</a></div></section>
     <section class="about page-width"><span class="section-index">02 <span>/</span> ABOUT</span><div><h2 data-t="noteTitle"></h2><p data-t="noteText"></p></div><a href="https://www.ufactory.cc/" target="_blank" rel="noopener noreferrer">UFACTORY.COM ↗</a></section>
   </main>
   <footer class="page-width"><div class="brand footer-brand"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOTS</span></div><span data-t="footer"></span><span>© 2026</span></footer>`;
@@ -223,6 +232,7 @@ interface ActiveJog {
   rpy: [number, number, number];
 }
 
+let currentSpec: RobotSpec = getRobotSpec(new URLSearchParams(window.location.search).get('model'));
 let language: Language = 'zh';
 let statusKey: Key = 'solverReady';
 let statusError = false;
@@ -235,6 +245,27 @@ let showBaseFrame = false;
 let showTcpFrame = false;
 let activeJog: ActiveJog | undefined;
 
+function renderRobotCopy() {
+  document.title = `${currentSpec.name} — UF Robots`;
+  $('#nav-explore').textContent = language === 'zh' ? `探索 ${currentSpec.name}` : `Explore ${currentSpec.name}`;
+  $('#explore').setAttribute('aria-label', `${currentSpec.name} interactive experience`);
+  $('#stage-overline').textContent = currentSpec.variantLabel[language];
+  $('#stage-heading').textContent = currentSpec.name;
+  $('#telemetry-joints-range').textContent = `J1–J${currentSpec.dof} · °`;
+  $('#joint-intro').textContent = currentSpec.jointIntro[language];
+  $('#spec-eyebrow').textContent = `${currentSpec.name.toUpperCase()} / AT A GLANCE`;
+  $('#spec-description').textContent = currentSpec.specDescription[language];
+  $('#spec-reach').innerHTML = `${currentSpec.specs.reachMm} <small>mm</small>`;
+  $('#spec-payload').innerHTML = `${currentSpec.specs.payload.value} <small>${currentSpec.specs.payload.unit}</small>`;
+  $('#spec-repeatability').innerHTML = `${currentSpec.specs.repeatabilityMm} <small>mm</small>`;
+  $<HTMLAnchorElement>('#spec-source-link').href = currentSpec.specs.manualUrl;
+  $('#spec-source-text').textContent = currentSpec.specs.manualLabel[language];
+  document.querySelectorAll<HTMLElement>('#model-switcher small[data-dof]').forEach(badge => {
+    const dof = badge.dataset.dof ?? '6';
+    badge.textContent = language === 'zh' ? `${dof} 轴` : `${dof} DoF`;
+  });
+}
+
 function translate() {
   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
   document.querySelectorAll<HTMLElement>('[data-t]').forEach(el => { el.textContent = copy[language][el.dataset.t as Key]; });
@@ -243,6 +274,7 @@ function translate() {
   $('#status-text').textContent = copy[language][statusKey];
   const message = document.querySelector<HTMLElement>('#load-message [data-load-text]');
   if (message) message.textContent = copy[language][loadKey];
+  renderRobotCopy();
 }
 
 function status(key: Key, error = false) {
@@ -256,8 +288,15 @@ function setLoadMessage(key: Key) {
   const element = $('#load-message');
   element.hidden = false;
   element.classList.toggle('failure', key !== 'loading');
-  element.innerHTML = key === 'loading' ? `<span class="spinner"></span><span data-load-text>${copy[language][key]}</span>` : `<span data-load-text>${copy[language][key]}</span><button type="button" id="retry" data-t="retry">${copy[language].retry}</button>`;
-  if (key !== 'loading') $('#retry').addEventListener('click', () => location.reload());
+  element.innerHTML = key === 'loading'
+    ? `<span class="spinner"></span><span data-load-text>${copy[language][key]}</span>`
+    : `<span data-load-text>${copy[language][key]}</span><button type="button" id="retry" data-t="retry">${copy[language].retry}</button>`;
+  if (key !== 'loading') {
+    $('#retry').addEventListener('click', () => {
+      if (key === 'webgl') location.reload();
+      else void loadRobot(currentSpec);
+    });
+  }
 }
 
 function numberValue(el: HTMLInputElement): number {
@@ -266,6 +305,11 @@ function numberValue(el: HTMLInputElement): number {
 
 function formatValue(value: number): string {
   return (Math.abs(value) < 0.005 ? 0 : value).toFixed(2);
+}
+
+function currentForward(): Pose {
+  if (!model) throw new Error('Model not loaded');
+  return forward(model, currentSpec.eeLink);
 }
 
 function syncJointFields() {
@@ -286,7 +330,7 @@ function poseValues(pose: Pose): number[] {
 
 function syncFKFields() {
   if (!model) return;
-  poseValues(forward(model)).forEach((value, i) => { $(`#fk-${i}`).textContent = formatValue(value); });
+  poseValues(currentForward()).forEach((value, i) => { $(`#fk-${i}`).textContent = formatValue(value); });
 }
 
 function syncTelemetry() {
@@ -328,13 +372,13 @@ function executeSingleStep(axis: CartesianAxis, dir: 1 | -1) {
   if (!model) return;
   const step = readStep(axis);
   if (step === undefined) return;
-  solveTarget(stepBasePose(forward(model), axis, dir * step));
+  solveTarget(stepBasePose(currentForward(), axis, dir * step));
 }
 
 function startContinuousJog(jog: ActiveJog) {
   if (!model || activeJog !== jog) return;
   jog.continuous = true;
-  const startPose = forward(model);
+  const startPose = currentForward();
   jog.position = startPose.position.clone();
   jog.rpy = toRPY(startPose.quaternion);
   jog.lastTime = performance.now();
@@ -402,7 +446,7 @@ function bindJogButtons() {
       stopJog(false);
       try { button.setPointerCapture(event.pointerId); } catch { /* synthetic events may omit active pointer */ }
       button.classList.add('is-jogging');
-      const current = model ? forward(model) : { position: new Vector3(), quaternion: fromRPY(0, 0, 0) };
+      const current = model ? currentForward() : { position: new Vector3(), quaternion: fromRPY(0, 0, 0) };
       const jog: ActiveJog = {
         button,
         pointerId: event.pointerId,
@@ -443,7 +487,25 @@ function bindJogButtons() {
   document.addEventListener('visibilitychange', () => { if (document.hidden) stopJog(false); });
 }
 
-function setupControls(robot: URDFRobot) {
+function applyControlAvailability(spec: RobotSpec, ready: boolean) {
+  const disabledAxes = new Set(spec.disabledJogAxes ?? []);
+  document.querySelectorAll<HTMLButtonElement>('#reset-pose, #toggle-base-frame, #toggle-tcp-frame').forEach(button => {
+    button.disabled = !ready;
+  });
+  document.querySelectorAll<HTMLButtonElement>('.jog-btn').forEach(button => {
+    const axis = button.dataset.jogAxis as CartesianAxis;
+    const axisDisabled = disabledAxes.has(axis);
+    button.disabled = !ready || axisDisabled;
+    button.classList.toggle('axis-unsupported', axisDisabled);
+  });
+}
+
+function resetTelemetryPlaceholders(dof: number) {
+  $('#stage-joint-fields').innerHTML = buildJointTelemetryHtml(dof);
+  for (let i = 0; i < 6; i++) $(`#fk-${i}`).textContent = '—';
+}
+
+function setupControls(robot: URDFRobot, spec: RobotSpec) {
   const jointList = $('#joint-list');
   const jointLimits = limits(robot);
   jointList.innerHTML = jointLimits.map((limit, i) => {
@@ -462,8 +524,56 @@ function setupControls(robot: URDFRobot) {
     $<HTMLInputElement>(`#joint-range-${i}`).addEventListener('input', change);
     $<HTMLInputElement>(`#joint-number-${i}`).addEventListener('change', change);
   });
-  document.querySelectorAll<HTMLButtonElement>('#reset-pose, #toggle-base-frame, #toggle-tcp-frame, .jog-btn').forEach(button => { button.disabled = false; });
+  applyControlAvailability(spec, true);
   syncTelemetry();
+}
+
+function syncModelSwitcherSelection(id: RobotId) {
+  document.querySelectorAll<HTMLButtonElement>('#model-switcher .model-tab').forEach(tab => {
+    tab.setAttribute('aria-selected', String(tab.dataset.robotId === id));
+  });
+}
+
+async function loadRobot(spec: RobotSpec, syncUrl = false) {
+  stopJog(false);
+  currentSpec = spec;
+  model = undefined;
+  solver = undefined;
+  syncModelSwitcherSelection(spec.id);
+  renderRobotCopy();
+  resetTelemetryPlaceholders(spec.dof);
+  $('#joint-list').innerHTML = '';
+  applyControlAvailability(spec, false);
+
+  const stage = $('#stage');
+  delete stage.dataset.ready;
+  stage.dataset.robot = spec.id;
+
+  if (syncUrl) {
+    const url = new URL(window.location.href);
+    if (spec.id === DEFAULT_ROBOT_ID) url.searchParams.delete('model');
+    else url.searchParams.set('model', spec.id);
+    window.history.replaceState(null, '', url);
+  }
+
+  if (!scene) return;
+  setLoadMessage('loading');
+  status('solverReady');
+
+  try {
+    const loaded = await scene.load(spec);
+    if (!loaded) return; // Superseded by a newer model selection
+    model = loaded;
+    setJoints(model, homeJoints(spec.dof));
+    solver = new IKSolver(model, spec.eeLink);
+    setupControls(model, spec);
+    $('#load-message').hidden = true;
+    status('solverReady');
+    stage.dataset.ready = 'true';
+  } catch (error) {
+    console.error(error);
+    if (currentSpec.id === spec.id) setLoadMessage('failed');
+  }
 }
 
 function setTab(tab: ControlTab) {
@@ -483,6 +593,14 @@ function setPanelOpen(open: boolean) {
   $('#control-toggle').setAttribute('aria-expanded', String(open));
   $('#control-expand').setAttribute('aria-expanded', String(open));
 }
+
+document.querySelectorAll<HTMLButtonElement>('#model-switcher .model-tab').forEach(tab => {
+  tab.addEventListener('click', () => {
+    const nextSpec = getRobotSpec(tab.dataset.robotId);
+    if (nextSpec.id === currentSpec.id && model) return;
+    void loadRobot(nextSpec, true);
+  });
+});
 
 $('#language').addEventListener('click', () => { language = language === 'zh' ? 'en' : 'zh'; translate(); });
 $('#control-toggle').addEventListener('click', () => setPanelOpen(false));
@@ -504,11 +622,12 @@ $('#toggle-tcp-frame').addEventListener('click', () => {
 });
 $('#reset-pose').addEventListener('click', () => {
   if (!model) return;
-  stopJog(false); setJoints(model, HOME); syncTelemetry(); status('solverReady');
+  stopJog(false); setJoints(model, homeJoints(currentSpec.dof)); syncTelemetry(); status('solverReady');
 });
 
 bindJogButtons();
 updateSpeedReadout();
+syncModelSwitcherSelection(currentSpec.id);
 translate();
 setLoadMessage('loading');
 
@@ -520,14 +639,6 @@ async function start() {
     sceneCanvas().addEventListener('webglcontextlost', event => { event.preventDefault(); setLoadMessage('webgl'); });
   }
   catch (error) { console.error(error); setLoadMessage('webgl'); return; }
-  try {
-    model = await scene.load();
-    setJoints(model, HOME);
-    solver = new IKSolver(model);
-    setupControls(model);
-    $('#load-message').hidden = true;
-    status('solverReady');
-    $('#stage').dataset.ready = 'true';
-  } catch (error) { console.error(error); setLoadMessage('failed'); }
+  await loadRobot(currentSpec, false);
 }
 void start();

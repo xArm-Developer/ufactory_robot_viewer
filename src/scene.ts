@@ -3,6 +3,23 @@ import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import URDFLoader, { type URDFRobot } from 'urdf-loader';
+import type { RobotSpec } from './robots';
+
+function disposeObject(root: THREE.Object3D): void {
+  root.traverse(object => {
+    if (object instanceof THREE.Mesh) {
+      object.geometry?.dispose();
+      const materials = Array.isArray(object.material) ? object.material : [object.material];
+      for (const material of materials) {
+        if (!material) continue;
+        for (const value of Object.values(material)) {
+          if (value instanceof THREE.Texture) value.dispose();
+        }
+        material.dispose();
+      }
+    }
+  });
+}
 
 function createCoordinateFrame(axisLength: number, shaftRadius: number): THREE.Group {
   const frame = new THREE.Group();
@@ -48,11 +65,12 @@ function createCoordinateFrame(axisLength: number, shaftRadius: number): THREE.G
 }
 
 export class RobotScene {
-  robot!: URDFRobot;
+  robot?: URDFRobot;
   private scene = new THREE.Scene();
   private renderer: THREE.WebGLRenderer;
   private camera: THREE.PerspectiveCamera;
   private orbit: OrbitControls;
+  private draco: DRACOLoader;
   private resizeObserver: ResizeObserver;
   private baseFrame?: THREE.Group;
   private tcpFrame?: THREE.Group;
@@ -60,6 +78,7 @@ export class RobotScene {
   private tcpFrameVisible = false;
   private initialCamera = new THREE.Vector3(0.93, -1.2, 0.95);
   private initialTarget = new THREE.Vector3(0, 0, 0.38);
+  private loadToken = 0;
 
   constructor(private container: HTMLElement) {
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
@@ -72,13 +91,16 @@ export class RobotScene {
     this.renderer.domElement.setAttribute('aria-label', 'Interactive xArm 6 3D model');
     container.appendChild(this.renderer.domElement);
 
+    this.draco = new DRACOLoader();
+    this.draco.setDecoderPath(new URL(`${import.meta.env.BASE_URL}draco/`, document.baseURI).href);
+
     this.camera = new THREE.PerspectiveCamera(36, 1, 0.01, 100);
     this.camera.up.set(0, 0, 1);
     this.camera.position.copy(this.initialCamera);
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.target.copy(this.initialTarget);
     this.orbit.enableDamping = true;
-    this.orbit.minDistance = 0.65;
+    this.orbit.minDistance = 0.45;
     this.orbit.maxDistance = 5;
     this.orbit.maxPolarAngle = Math.PI * 0.49;
     this.orbit.update();
@@ -118,15 +140,27 @@ export class RobotScene {
     });
   }
 
-  async load(): Promise<URDFRobot> {
-    const baseUrl = new URL(`${import.meta.env.BASE_URL}models/xarm6/`, document.baseURI);
-    const response = await fetch(new URL('xarm6.urdf', baseUrl));
+  private clearCurrentRobot(): void {
+    if (!this.robot) return;
+    this.scene.remove(this.robot);
+    disposeObject(this.robot);
+    this.robot = undefined;
+    this.baseFrame = undefined;
+    this.tcpFrame = undefined;
+  }
+
+  async load(spec: RobotSpec): Promise<URDFRobot | null> {
+    const token = ++this.loadToken;
+    this.clearCurrentRobot();
+
+    const baseUrl = new URL(`${import.meta.env.BASE_URL}${spec.modelDir}`, document.baseURI);
+    const response = await fetch(new URL(spec.urdfFile, baseUrl));
     if (!response.ok) throw new Error(`URDF HTTP ${response.status}`);
     const xml = await response.text();
+    if (token !== this.loadToken) return null;
+
     const manager = new THREE.LoadingManager();
-    const draco = new DRACOLoader(manager);
-    draco.setDecoderPath(new URL(`${import.meta.env.BASE_URL}draco/`, document.baseURI).href);
-    const gltf = new GLTFLoader(manager).setDRACOLoader(draco);
+    const gltf = new GLTFLoader(manager).setDRACOLoader(this.draco);
     const loader = new URDFLoader(manager);
     loader.workingPath = baseUrl.href;
     const pending: Promise<void>[] = [];
@@ -142,9 +176,25 @@ export class RobotScene {
       });
       pending.push(task);
     };
-    this.robot = loader.parse(xml);
-    if (pending.length !== 7) throw new Error(`Expected 7 visual meshes, found ${pending.length}`);
+    const nextRobot = loader.parse(xml);
+    if (pending.length !== spec.visualMeshCount) {
+      disposeObject(nextRobot);
+      throw new Error(`Expected ${spec.visualMeshCount} visual meshes, found ${pending.length}`);
+    }
     await Promise.all(pending);
+    if (token !== this.loadToken) {
+      disposeObject(nextRobot);
+      return null;
+    }
+
+    const endLink = nextRobot.links[spec.eeLink];
+    if (!endLink) {
+      disposeObject(nextRobot);
+      throw new Error(`URDF is missing ${spec.eeLink}`);
+    }
+
+    this.robot = nextRobot;
+    this.renderer.domElement.setAttribute('aria-label', `Interactive ${spec.name} 3D model`);
 
     this.baseFrame = createCoordinateFrame(0.14, 0.0026);
     this.baseFrame.name = 'base_coordinate_frame';
@@ -154,7 +204,11 @@ export class RobotScene {
     this.tcpFrame = createCoordinateFrame(0.1, 0.0022);
     this.tcpFrame.name = 'tcp_coordinate_frame';
     this.tcpFrame.visible = this.tcpFrameVisible;
-    this.robot.links.link_eef.add(this.tcpFrame);
+    endLink.add(this.tcpFrame);
+
+    this.initialCamera.set(...spec.cameraPosition);
+    this.initialTarget.set(...spec.cameraTarget);
+    this.resetView();
 
     this.scene.add(this.robot);
     this.robot.updateMatrixWorld(true);
