@@ -1,11 +1,14 @@
 import { test, expect, devices } from '@playwright/test';
+import { readFileSync } from 'node:fs';
+
+const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as { samples: { position: number[] }[] };
 
 const ready = async (page: import('@playwright/test').Page) => {
   await page.goto('/');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
 };
 
-test('desktop model, bilingual controls, numeric IK, and target dragging', async ({ page }) => {
+test('desktop FK and Cartesian IK controls stay in sync', async ({ page }) => {
   await page.setViewportSize({ width: 1440, height: 1000 });
   const meshes: string[] = [];
   const errors: string[] = [];
@@ -13,38 +16,52 @@ test('desktop model, bilingual controls, numeric IK, and target dragging', async
   page.on('pageerror', error => errors.push(error.message));
   await ready(page);
   expect(meshes).toHaveLength(7);
+  await expect(page.locator('h1')).toHaveText('xArm 6');
+  await expect(page.locator('body')).not.toContainText('让想象');
+  await expect(page.locator('body')).not.toContainText('从每一个角度');
+  await expect(page.locator('#joint-panel')).toBeVisible();
+  await expect(page.locator('#pose-panel')).toBeVisible();
+  expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.samples[0].position[0] * 1000, 1);
   await page.locator('#language').click();
-  await expect(page.locator('h1')).toContainText('Make ideas');
+  await expect(page.locator('#cartesian-title')).toHaveText('Cartesian control');
+  const initialY = Number(await page.locator('#fk-1').innerText());
   await page.locator('#joint-number-0').fill('20');
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('20.00');
+  expect(Math.abs(Number(await page.locator('#fk-1').innerText()) - initialY)).toBeGreaterThan(10);
+  expect(Number(await page.locator('#pose-1').inputValue())).toBeCloseTo(Number(await page.locator('#fk-1').innerText()), 1);
   await page.locator('#reset-pose').click();
   await expect(page.locator('#joint-number-0')).toHaveValue('0.00');
-  await page.locator('#pose-tab').click();
   const originalX = Number(await page.locator('#pose-0').inputValue());
   await page.locator('#pose-0').fill(String(originalX + 10));
   await page.locator('#pose-0').dispatchEvent('change');
   await expect(page.locator('#status-text')).toHaveText('Target solved');
+  expect(Math.abs(Number(await page.locator('#fk-0').innerText()) - (originalX + 10))).toBeLessThan(1);
   const beforeFailure = await page.locator('#joint-number-1').inputValue();
+  const beforeFailureFK = await page.locator('#fk-0').innerText();
   await page.locator('#pose-0').fill('10000');
   await page.locator('#pose-0').dispatchEvent('change');
   await expect(page.locator('#status-text')).toContainText('Could not reach');
   expect(await page.locator('#joint-number-1').inputValue()).toBe(beforeFailure);
+  expect(await page.locator('#fk-0').innerText()).toBe(beforeFailureFK);
+  await expect(page.locator('#pose-0')).toHaveValue('10000');
   await page.locator('#pose-0').fill('');
   await page.locator('#pose-0').dispatchEvent('change');
   await expect(page.locator('#status-text')).toContainText('valid value');
+  await page.locator('#use-current').click();
+  await expect(page.locator('#status-text')).toHaveText('Ready');
+  expect(Number(await page.locator('#pose-0').inputValue())).toBeCloseTo(Number(beforeFailureFK), 1);
   await page.locator('#reset-pose').click();
   await page.locator('[data-mode=translate]').click();
   await page.locator('#stage').scrollIntoViewIfNeeded();
   const stage = (await page.locator('#stage').boundingBox())!;
-  const x = stage.x + stage.width * 0.655;
+  const x = stage.x + stage.width / 2 + 149;
   const y = stage.y + stage.height * 0.744;
-  await page.mouse.move(x, y);
-  await page.mouse.down();
-  await page.mouse.move(x + 24, y + 8, { steps: 4 });
-  await page.mouse.up();
+  await page.mouse.move(x, y); await page.mouse.down();
+  await page.mouse.move(x + 24, y + 8, { steps: 4 }); await page.mouse.up();
   await expect(page.locator('#status-text')).toHaveText('Target solved');
   expect(Number(await page.locator('#pose-0').inputValue())).toBeGreaterThan(originalX + 5);
+  expect(Math.abs(Number(await page.locator('#fk-0').innerText()) - Number(await page.locator('#pose-0').inputValue()))).toBeLessThan(1);
   await page.locator('#reset-pose').click();
   await page.locator('[data-mode=rotate]').click();
   await expect(page.locator('[data-mode=rotate]')).toHaveAttribute('aria-pressed', 'true');
@@ -57,9 +74,11 @@ test('desktop model, bilingual controls, numeric IK, and target dragging', async
   await page.mouse.move(rx + 20, ry + 6, { steps: 4 }); await page.mouse.up();
   await expect(page.locator('#status-text')).toHaveText('Target solved');
   expect(Math.abs(Number(await page.locator('#pose-5').inputValue()) - beforeYaw)).toBeGreaterThan(1);
-  await page.locator('#view-reset').click();
-  await page.locator('#panel-toggle').click();
-  await expect(page.locator('#panel-content')).toBeHidden();
+  await page.locator('#cartesian-toggle').click();
+  await expect(page.locator('#pose-panel')).toBeHidden();
+  await expect(page.locator('#joint-panel')).toBeVisible();
+  await page.locator('#joint-toggle').click();
+  await expect(page.locator('#joint-panel')).toBeHidden();
   expect(errors).toEqual([]);
 });
 
@@ -119,7 +138,6 @@ test('touch-size layout loads and accepts joint input', async ({ browser }) => {
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('15.00');
   await page.locator('#reset-pose').click();
-  await page.locator('#pose-tab').click();
   await page.locator('[data-mode=translate]').click();
   await expect(page.locator('[data-mode=translate]')).toHaveAttribute('aria-pressed', 'true');
   await page.locator('#stage').scrollIntoViewIfNeeded();

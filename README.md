@@ -18,7 +18,7 @@ npm run dev
 - `npm run test:browser`：Playwright 桌面和手机尺寸测试。首次使用需 `npx playwright install chromium`；也可设置 `CHROME_PATH` 使用本机 Chrome。
 - `python scripts/generate-mujoco-fixtures.py`：使用已安装 MuJoCo 的 Python 环境重新生成 FK 基准；当前开发环境为 `/opt/conda_envs/py314/bin/python`。
 
-关节限制读取自 URDF。末端位姿从 `link_base` 指向 `link_eef`；输入使用毫米和角度，RPY 为固定轴 `Rz(yaw) × Ry(pitch) × Rx(roll)`。数值输入在更改后求解；末端手柄可切换平移和旋转。目标求解失败时保留上一次有效关节姿态。
+关节控制面板实时显示关节角度，并通过 FK 更新笛卡尔控制面板的当前末端位姿。笛卡尔面板可输入 XYZ/RPY 目标或拖动平移、旋转手柄，通过 IK 求解；“使用当前位姿”可重置目标。目标求解失败时保留上一次有效姿态，当前 FK 与目标分开显示。关节限制读取自 URDF；位姿从 `link_base` 指向 `link_eef`，界面使用毫米和角度，RPY 为固定轴 `Rz(yaw) × Ry(pitch) × Rx(roll)`。
 
 ## 部署
 
