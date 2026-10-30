@@ -2,11 +2,44 @@ import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import URDFLoader, { type URDFRobot } from 'urdf-loader';
 import type { RobotSpec } from './robots';
-import { gripperMount, type GripperSpec } from './grippers';
+import type { GripperSpec } from './grippers';
+import {
+  assemblyGripperMount,
+  RAIL_CAD_TO_WORLD,
+  RAIL_ORIGIN_WORLD,
+  RAIL_SPEC,
+  ROBOT_BASE_CAD,
+  ROBOT_MOUNT_CAD_ROTATION,
+  SENSOR_FLANGE_CAD,
+  SENSOR_SPEC,
+  validRailPosition,
+} from './accessories';
 import { createGripperModel, gripperPartNames, type GripperModel } from './gripper-model';
 import type { Pose } from './kinematics';
+import { RailDragChain } from './rail-drag-chain';
+
+export interface AssemblyAccessoriesConfig {
+  rail: boolean;
+  railMm: number;
+  sensor: boolean;
+  gripper?: GripperSpec;
+  opening: number;
+}
+
+export type StandaloneTarget =
+  | { kind: 'gripper'; spec: GripperSpec; opening: number }
+  | { kind: 'sensor' };
+
+async function loadGripperPart(loader: GLTFLoader, spec: GripperSpec, name: string, baseUrl: URL): Promise<THREE.Object3D> {
+  if (spec.id === 'lite6-gripper' && (name === 'finger1' || name === 'finger2')) {
+    const geometry = await new STLLoader().loadAsync(new URL(`${name}.stl`, baseUrl).href);
+    return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x202324, roughness: 0.72, metalness: 0.08 }));
+  }
+  return (await loader.loadAsync(new URL(`${name}.glb`, baseUrl).href)).scene;
+}
 
 function disposeObject(root: THREE.Object3D): void {
   root.traverse(object => {
@@ -20,6 +53,15 @@ function disposeObject(root: THREE.Object3D): void {
         }
         material.dispose();
       }
+    }
+  });
+}
+
+function enableShadows(root: THREE.Object3D): void {
+  root.traverse(object => {
+    if (object instanceof THREE.Mesh) {
+      object.castShadow = true;
+      object.receiveShadow = true;
     }
   });
 }
@@ -75,6 +117,8 @@ export class RobotScene {
   private orbit: OrbitControls;
   private draco: DRACOLoader;
   private resizeObserver: ResizeObserver;
+  private pedestalGroup = new THREE.Group();
+  private robotMount = new THREE.Group();
   private baseFrame?: THREE.Group;
   private tcpFrame?: THREE.Group;
   private baseFrameVisible = false;
@@ -82,12 +126,18 @@ export class RobotScene {
   private initialCamera = new THREE.Vector3(0.93, -1.2, 0.95);
   private initialTarget = new THREE.Vector3(0, 0, 0.38);
   private loadToken = 0;
-  private gripperToken = 0;
+  private accessoryToken = 0;
   private gripper?: GripperModel;
+  private sensorMount?: THREE.Group;
+  private railRoot?: THREE.Group;
+  private railCarriage?: THREE.Object3D;
+  private railDragChain?: RailDragChain;
+  private railMounted = false;
   private renderPending = false;
   private platformMaterial = new THREE.MeshStandardMaterial({ color: 0xbfc7c4, roughness: 0.83, metalness: 0.16 });
 
   constructor(private container: HTMLElement) {
+    this.robotMount.name = 'robot_mount';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
@@ -107,8 +157,9 @@ export class RobotScene {
     this.orbit = new OrbitControls(this.camera, this.renderer.domElement);
     this.orbit.target.copy(this.initialTarget);
     this.orbit.enableDamping = true;
-    this.orbit.minDistance = 0.45;
-    this.orbit.maxDistance = 5;
+    this.orbit.dampingFactor = 0.4;
+    this.orbit.minDistance = 0.25;
+    this.orbit.maxDistance = 6;
     this.orbit.maxPolarAngle = Math.PI * 0.49;
     this.orbit.addEventListener('change', () => this.requestRender());
     this.orbit.update();
@@ -118,26 +169,33 @@ export class RobotScene {
     key.position.set(2, -3, 5);
     key.castShadow = true;
     key.shadow.mapSize.set(2048, 2048);
-    key.shadow.camera.left = key.shadow.camera.bottom = -2;
-    key.shadow.camera.right = key.shadow.camera.top = 2;
+    key.shadow.camera.left = key.shadow.camera.bottom = -2.2;
+    key.shadow.camera.right = key.shadow.camera.top = 2.2;
     key.shadow.bias = -0.0001;
     this.scene.add(key);
     const fill = new THREE.DirectionalLight(0xd8e8ff, 1.5);
     fill.position.set(-3, 1, 3);
     this.scene.add(fill);
 
-    const floor = new THREE.Mesh(new THREE.PlaneGeometry(200, 200), new THREE.ShadowMaterial({ color: 0x263332, opacity: 0.16 }));
+    const floor = new THREE.Mesh(
+      new THREE.PlaneGeometry(200, 200),
+      new THREE.ShadowMaterial({ color: 0x263332, opacity: 0.16, depthWrite: false }),
+    );
     floor.position.z = -0.012;
     floor.receiveShadow = true;
     this.scene.add(floor);
+
     const disk = new THREE.Mesh(new THREE.CylinderGeometry(0.46, 0.49, 0.025, 96), this.platformMaterial);
     disk.rotation.x = Math.PI / 2;
     disk.position.z = -0.025;
     disk.receiveShadow = true;
-    this.scene.add(disk);
-    const ring = new THREE.Mesh(new THREE.RingGeometry(0.62, 0.623, 128), new THREE.MeshBasicMaterial({ color: 0x919f99, transparent: true, opacity: 0.55, side: THREE.DoubleSide }));
+    const ring = new THREE.Mesh(
+      new THREE.RingGeometry(0.62, 0.623, 128),
+      new THREE.MeshBasicMaterial({ color: 0x919f99, transparent: true, opacity: 0.55, side: THREE.DoubleSide }),
+    );
     ring.position.z = -0.008;
-    this.scene.add(ring);
+    this.pedestalGroup.add(disk, ring);
+    this.scene.add(this.pedestalGroup);
 
     this.resizeObserver = new ResizeObserver(() => this.resize());
     this.resizeObserver.observe(container);
@@ -158,35 +216,62 @@ export class RobotScene {
 
   private clearCurrentRobot(): void {
     if (!this.robot) return;
-    this.scene.remove(this.robot);
+    this.robot.removeFromParent();
+    this.robotMount.removeFromParent();
     disposeObject(this.robot);
     this.robot = undefined;
     this.baseFrame = undefined;
     this.tcpFrame = undefined;
   }
 
-  private clearCurrentGripper(): void {
+  private clearCurrentAccessories(): void {
+    this.pedestalGroup.visible = true;
     this.platformMaterial.transparent = false;
     this.platformMaterial.opacity = 1;
     this.platformMaterial.depthWrite = true;
     this.platformMaterial.needsUpdate = true;
-    if (!this.gripper) return;
-    this.gripper.root.removeFromParent();
-    disposeObject(this.gripper.root);
-    this.gripper = undefined;
+
+    // Detach robotMount from railCarriage before disposing railRoot so the arm is never disposed.
+    this.robotMount.position.set(0, 0, 0);
+    this.robotMount.quaternion.identity();
+    if (this.robot) {
+      this.scene.add(this.robotMount);
+    } else {
+      this.robotMount.removeFromParent();
+    }
+
+    if (this.gripper) {
+      this.gripper.root.removeFromParent();
+      disposeObject(this.gripper.root);
+      this.gripper = undefined;
+    }
+    if (this.sensorMount) {
+      this.sensorMount.removeFromParent();
+      disposeObject(this.sensorMount);
+      this.sensorMount = undefined;
+    }
+    if (this.railRoot) {
+      this.railRoot.removeFromParent();
+      disposeObject(this.railRoot);
+      this.railRoot = undefined;
+      this.railCarriage = undefined;
+    }
+    this.railDragChain = undefined;
   }
 
   clear(): void {
     ++this.loadToken;
-    ++this.gripperToken;
-    this.clearCurrentGripper();
+    ++this.accessoryToken;
+    this.railMounted = false;
+    this.clearCurrentAccessories();
     this.clearCurrentRobot();
   }
 
   async load(spec: RobotSpec): Promise<URDFRobot | null> {
     const token = ++this.loadToken;
-    ++this.gripperToken;
-    this.clearCurrentGripper();
+    ++this.accessoryToken;
+    this.railMounted = false;
+    this.clearCurrentAccessories();
     this.clearCurrentRobot();
 
     const baseUrl = new URL(`${import.meta.env.BASE_URL}${spec.modelDir}`, document.baseURI);
@@ -202,9 +287,7 @@ export class RobotScene {
     const pending: Promise<void>[] = [];
     loader.loadMeshCb = (url, _manager, _material, done) => {
       const task = gltf.loadAsync(url).then(result => {
-        result.scene.traverse(object => {
-          if (object instanceof THREE.Mesh) { object.castShadow = true; object.receiveShadow = true; }
-        });
+        enableShadows(result.scene);
         done(result.scene);
       }).catch((error: unknown) => {
         done(null as unknown as THREE.Object3D, error instanceof Error ? error : new Error(String(error)));
@@ -248,63 +331,207 @@ export class RobotScene {
     this.initialTarget.set(...spec.cameraTarget);
     this.resetView();
 
-    this.scene.add(this.robot);
-    this.robot.updateMatrixWorld(true);
+    this.robotMount.position.set(0, 0, 0);
+    this.robotMount.quaternion.identity();
+    this.robotMount.add(this.robot);
+    this.scene.add(this.robotMount);
+    this.robot.updateWorldMatrix(true, true);
     this.requestRender();
     return this.robot;
   }
 
-  async setGripper(spec: GripperSpec | undefined, opening: number, robotSpec?: RobotSpec): Promise<boolean> {
-    const token = ++this.gripperToken;
-    this.clearCurrentGripper();
-    if (!spec) {
-      if (robotSpec) this.renderer.domElement.setAttribute('aria-label', `Interactive ${robotSpec.name} 3D model`);
+  async setAssemblyAccessories(config: AssemblyAccessoriesConfig, robotSpec: RobotSpec): Promise<boolean> {
+    const token = ++this.accessoryToken;
+    this.clearCurrentAccessories();
+    if (!this.robot) throw new Error('Robot is not loaded');
+
+    const loader = new GLTFLoader().setDRACOLoader(this.draco);
+    const railUrl = new URL(`${import.meta.env.BASE_URL}models/${RAIL_SPEC.id}/model.glb`, document.baseURI).href;
+    const sensorUrl = new URL(`${import.meta.env.BASE_URL}models/${SENSOR_SPEC.id}/model.glb`, document.baseURI).href;
+    const gripperNames = config.gripper ? gripperPartNames(config.gripper) : [];
+    const gripperBaseUrl = config.gripper
+      ? new URL(`${import.meta.env.BASE_URL}models/${config.gripper.id}/`, document.baseURI)
+      : undefined;
+
+    const tasks: Promise<THREE.Object3D>[] = [];
+    const railIndex = config.rail ? tasks.push(loader.loadAsync(railUrl).then(r => r.scene)) - 1 : -1;
+    const sensorIndex = config.sensor ? tasks.push(loader.loadAsync(sensorUrl).then(r => r.scene)) - 1 : -1;
+    const gripperStartIndex = tasks.length;
+    for (const name of gripperNames) {
+      tasks.push(loadGripperPart(loader, config.gripper!, name, gripperBaseUrl!));
+    }
+
+    const results = await Promise.allSettled(tasks);
+    const loaded = results.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
+    if (token !== this.accessoryToken || results.some(result => result.status === 'rejected')) {
+      this.railMounted = false;
+      loaded.forEach(disposeObject);
+      if (token !== this.accessoryToken) return false;
+      const failure = results.find(result => result.status === 'rejected');
+      throw failure?.status === 'rejected' ? failure.reason : new Error('Unable to load accessories');
+    }
+
+    try {
+      if (config.rail) {
+        const railScene = (results[railIndex] as PromiseFulfilledResult<THREE.Group>).value;
+        const carriage = railScene.getObjectByName('rail_carriage');
+        const fixedRail = railScene.getObjectByName('rail_fixed');
+        if (!carriage || !fixedRail) {
+          throw new Error('Rail model is missing fixed or carriage group');
+        }
+        const dragChain = new RailDragChain(fixedRail);
+        dragChain.setPosition(config.railMm);
+        enableShadows(railScene);
+        const railFrame = new THREE.Group();
+        railFrame.name = 'rail_cad_to_world';
+        railFrame.position.copy(RAIL_ORIGIN_WORLD);
+        railFrame.quaternion.copy(RAIL_CAD_TO_WORLD);
+        railFrame.add(railScene);
+        carriage.position.z = -config.railMm / 1000;
+
+        this.robotMount.position.copy(ROBOT_BASE_CAD);
+        this.robotMount.quaternion.copy(ROBOT_MOUNT_CAD_ROTATION);
+        carriage.add(this.robotMount);
+
+        this.scene.add(railFrame);
+        this.railRoot = railFrame;
+        this.railCarriage = carriage;
+        this.railDragChain = dragChain;
+        this.pedestalGroup.visible = false;
+      }
+
+      if (config.sensor) {
+        const sensorScene = (results[sensorIndex] as PromiseFulfilledResult<THREE.Group>).value;
+        enableShadows(sensorScene);
+        const sensorMount = new THREE.Group();
+        sensorMount.name = 'sensor_flange_mount';
+        sensorScene.position.copy(SENSOR_FLANGE_CAD).negate();
+        sensorMount.add(sensorScene);
+        this.robot.links[robotSpec.eeLink].add(sensorMount);
+        this.sensorMount = sensorMount;
+      }
+
+      if (config.gripper) {
+        const parts = Object.fromEntries(
+          gripperNames.map((name, index) => [
+            name,
+            (results[gripperStartIndex + index] as PromiseFulfilledResult<THREE.Group>).value,
+          ]),
+        );
+        const gripper = createGripperModel(config.gripper, parts);
+        gripper.setOpening(config.opening);
+        const mount = assemblyGripperMount(robotSpec.id, config.gripper.id, config.sensor);
+        gripper.root.position.copy(mount.position);
+        gripper.root.quaternion.copy(mount.quaternion);
+        this.robot.links[robotSpec.eeLink].add(gripper.root);
+        this.gripper = gripper;
+      }
+    } catch (error) {
+      this.railMounted = false;
+      this.clearCurrentAccessories();
+      loaded.forEach(disposeObject);
+      throw error;
+    }
+
+    // A zero-pose tool on the stationary pedestal can extend below the stage. Keep it visible
+    // through the decorative platform without changing the robot's joints or TCP.
+    if (!config.rail && (config.sensor || config.gripper)) {
+      this.platformMaterial.transparent = true;
+      this.platformMaterial.opacity = 0.2;
+      this.platformMaterial.depthWrite = false;
+      this.platformMaterial.needsUpdate = true;
+    }
+
+    if (config.rail !== this.railMounted) {
+      this.railMounted = config.rail;
+      const cameraPreset = config.rail ? RAIL_SPEC : robotSpec;
+      this.initialCamera.set(...cameraPreset.cameraPosition);
+      this.initialTarget.set(...cameraPreset.cameraTarget);
+      this.resetView();
+    }
+
+    const activeNames = [
+      robotSpec.name,
+      ...(config.rail ? [RAIL_SPEC.name.en] : []),
+      ...(config.sensor ? [SENSOR_SPEC.name.en] : []),
+      ...(config.gripper ? [config.gripper.name] : []),
+    ];
+    this.renderer.domElement.setAttribute('aria-label', `Interactive ${activeNames.join(' and ')} 3D model`);
+    this.scene.updateMatrixWorld(true);
+    this.resize();
+    this.requestRender();
+    return true;
+  }
+
+  async setStandaloneAccessory(target: StandaloneTarget): Promise<boolean> {
+    const token = ++this.accessoryToken;
+    this.railMounted = false;
+    this.clearCurrentAccessories();
+    const loader = new GLTFLoader().setDRACOLoader(this.draco);
+
+    if (target.kind === 'sensor') {
+      const sensorUrl = new URL(`${import.meta.env.BASE_URL}models/${SENSOR_SPEC.id}/model.glb`, document.baseURI).href;
+      const [result] = await Promise.allSettled([loader.loadAsync(sensorUrl)]);
+      if (token !== this.accessoryToken || result.status === 'rejected') {
+        if (result.status === 'fulfilled') disposeObject(result.value.scene);
+        if (token !== this.accessoryToken) return false;
+        throw result.status === 'rejected' ? result.reason : new Error('Unable to load sensor');
+      }
+      const sensorScene = result.value.scene;
+      enableShadows(sensorScene);
+      const root = new THREE.Group();
+      root.name = SENSOR_SPEC.id;
+      sensorScene.position.copy(SENSOR_FLANGE_CAD).negate();
+      root.add(sensorScene);
+      this.scene.add(root);
+      root.updateMatrixWorld(true);
+      let bounds = new THREE.Box3().setFromObject(root);
+      const center = bounds.getCenter(new THREE.Vector3());
+      root.position.set(-center.x, -center.y, 0.001 - bounds.min.z);
+      root.updateMatrixWorld(true);
+      bounds = new THREE.Box3().setFromObject(root);
+      bounds.getCenter(this.initialTarget);
+      this.initialCamera.copy(this.initialTarget).add(new THREE.Vector3(0.18, -0.26, 0.18));
+      this.sensorMount = root;
+      this.resetView();
+      this.renderer.domElement.setAttribute('aria-label', `Interactive ${SENSOR_SPEC.name.en} 3D model`);
       this.resize();
       this.requestRender();
       return true;
     }
+
+    const { spec, opening } = target;
     const baseUrl = new URL(`${import.meta.env.BASE_URL}models/${spec.id}/`, document.baseURI);
-    const loader = new GLTFLoader().setDRACOLoader(this.draco);
     const names = gripperPartNames(spec);
-    const results = await Promise.allSettled(names.map(name => loader.loadAsync(new URL(`${name}.glb`, baseUrl).href)));
-    const loaded = results.flatMap(result => result.status === 'fulfilled' ? [result.value.scene] : []);
-    if (token !== this.gripperToken || results.some(result => result.status === 'rejected')) {
+    const results = await Promise.allSettled(names.map(name => loadGripperPart(loader, spec, name, baseUrl)));
+    const loaded = results.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
+    if (token !== this.accessoryToken || results.some(result => result.status === 'rejected')) {
       loaded.forEach(disposeObject);
-      if (token !== this.gripperToken) return false;
+      if (token !== this.accessoryToken) return false;
       const failure = results.find(result => result.status === 'rejected');
       throw failure?.status === 'rejected' ? failure.reason : new Error('Unable to load gripper');
     }
     const parts = Object.fromEntries(names.map((name, index) => [name, loaded[index]]));
     let gripper: GripperModel;
-    try { gripper = createGripperModel(spec, parts); }
-    catch (error) { loaded.forEach(disposeObject); throw error; }
+    try {
+      gripper = createGripperModel(spec, parts);
+    } catch (error) {
+      loaded.forEach(disposeObject);
+      throw error;
+    }
     gripper.setOpening(opening);
     this.gripper = gripper;
-    if (robotSpec) {
-      if (!this.robot) { this.clearCurrentGripper(); throw new Error('Robot is not loaded'); }
-      const mount = gripperMount(robotSpec.id, spec.id);
-      gripper.root.position.copy(mount.position);
-      gripper.root.quaternion.copy(mount.quaternion);
-      this.robot.links[robotSpec.eeLink].add(gripper.root);
-      // A zero-pose tool can extend below the stage. Keep it visible through
-      // the decorative platform without changing the robot's joints or TCP.
-      this.platformMaterial.transparent = true;
-      this.platformMaterial.opacity = 0.2;
-      this.platformMaterial.depthWrite = false;
-      this.platformMaterial.needsUpdate = true;
-    } else {
-      if (spec.id === 'bio-gripper-g2') gripper.root.rotation.y = -Math.PI / 2;
-      this.scene.add(gripper.root);
-      gripper.root.updateMatrixWorld(true);
-      let bounds = new THREE.Box3().setFromObject(gripper.root);
-      gripper.root.position.z += 0.001 - bounds.min.z;
-      gripper.root.updateMatrixWorld(true);
-      bounds = new THREE.Box3().setFromObject(gripper.root);
-      bounds.getCenter(this.initialTarget);
-      this.initialCamera.copy(this.initialTarget).add(new THREE.Vector3(0.32, -0.46, 0.3));
-      this.resetView();
-    }
-    this.renderer.domElement.setAttribute('aria-label', `Interactive ${robotSpec ? `${robotSpec.name} and ` : ''}${spec.name} 3D model`);
+    if (spec.id === 'bio-gripper-g2') gripper.root.rotation.y = -Math.PI / 2;
+    this.scene.add(gripper.root);
+    gripper.root.updateMatrixWorld(true);
+    let bounds = new THREE.Box3().setFromObject(gripper.root);
+    gripper.root.position.z += 0.001 - bounds.min.z;
+    gripper.root.updateMatrixWorld(true);
+    bounds = new THREE.Box3().setFromObject(gripper.root);
+    bounds.getCenter(this.initialTarget);
+    this.initialCamera.copy(this.initialTarget).add(new THREE.Vector3(0.32, -0.46, 0.3));
+    this.resetView();
+    this.renderer.domElement.setAttribute('aria-label', `Interactive ${spec.name} 3D model`);
     this.resize();
     this.requestRender();
     return true;
@@ -314,6 +541,15 @@ export class RobotScene {
     const changed = this.gripper?.setOpening(opening) ?? false;
     if (changed) this.requestRender();
     return changed;
+  }
+
+  setRailPosition(railMm: number): boolean {
+    if (!this.railCarriage || !this.railDragChain || !validRailPosition(railMm)) return false;
+    this.railCarriage.position.z = -railMm / 1000;
+    this.railDragChain.setPosition(railMm);
+    this.railCarriage.updateWorldMatrix(true, true);
+    this.requestRender();
+    return true;
   }
 
   setToolOffset(offset: Pose): void {
@@ -350,7 +586,8 @@ export class RobotScene {
     const width = this.container.clientWidth;
     const height = this.container.clientHeight;
     if (!width || !height) return;
-    this.camera.fov = this.robot && this.gripper && width < 600 ? 45 : 36;
+    const hasAccessories = Boolean(this.gripper || this.sensorMount || this.railRoot);
+    this.camera.fov = this.robot && hasAccessories && width < 600 ? 45 : 36;
     this.camera.aspect = width / height;
     this.camera.updateProjectionMatrix();
     this.renderer.setSize(width, height, false);

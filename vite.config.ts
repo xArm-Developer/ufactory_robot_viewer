@@ -8,6 +8,7 @@ export default defineConfig({
       'three/addons/controls/OrbitControls.js',
       'three/addons/loaders/GLTFLoader.js',
       'three/addons/loaders/DRACOLoader.js',
+      'three/addons/loaders/STLLoader.js',
       'urdf-loader',
       'closed-chain-ik/core',
       'closed-chain-ik/three',

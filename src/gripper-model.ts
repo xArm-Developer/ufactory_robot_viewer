@@ -3,16 +3,19 @@ import { bioFingerTravel, g2Angle, validOpening, type GripperSpec } from './grip
 
 export interface GripperModel {
   root: THREE.Group;
-  setOpening(openingMm: number): boolean;
+  setOpening(opening: number): boolean;
 }
 
 export function gripperPartNames(spec: GripperSpec): string[] {
-  return spec.id === 'gripper-g2'
-    ? ['base', 'left_outer_knuckle', 'right_outer_knuckle', 'left_inner_knuckle', 'right_inner_knuckle', 'left_finger', 'right_finger']
-    : ['bio_gripper_g2_base', 'bio_gripper_g2_left_finger', 'bio_gripper_g2_right_finger'];
+  switch (spec.id) {
+    case 'gripper-g2': return ['base', 'left_outer_knuckle', 'right_outer_knuckle', 'left_inner_knuckle', 'right_inner_knuckle', 'left_finger', 'right_finger'];
+    case 'bio-gripper-g2': return ['bio_gripper_g2_base', 'bio_gripper_g2_left_finger', 'bio_gripper_g2_right_finger'];
+    case 'lite6-gripper': return ['shell', 'finger1', 'finger2'];
+    case 'lite6-vacuum-gripper': return ['vacuum'];
+  }
 }
 
-/** Assemble link-canonical GLBs in the URDF's Z-up frame. */
+/** Assemble link-canonical meshes in the URDF's Z-up frame. */
 export function createGripperModel(spec: GripperSpec, parts: Record<string, THREE.Object3D>): GripperModel {
   const root = new THREE.Group();
   root.name = spec.id;
@@ -66,7 +69,29 @@ export function createGripperModel(spec: GripperSpec, parts: Record<string, THRE
       root.updateMatrixWorld(true);
       return true;
     };
-    setOpening(spec.maxMm);
+    setOpening(spec.opening!.max);
+    return { root, setOpening };
+  }
+
+  if (spec.id === 'lite6-vacuum-gripper') {
+    root.add(part('vacuum'));
+    return { root, setOpening: () => false };
+  }
+
+  if (spec.id === 'lite6-gripper') {
+    root.add(part('shell'));
+    const left = part('finger1');
+    const right = part('finger2');
+    root.add(left, right);
+    const setOpening = (opening: number) => {
+      if (!validOpening(spec, opening)) return false;
+      const travel = opening === spec.opening!.max ? 0.0089 : 0;
+      left.position.set(0, travel, 0.0543);
+      right.position.set(0, -travel, 0.0543);
+      root.updateMatrixWorld(true);
+      return true;
+    };
+    setOpening(spec.opening!.max);
     return { root, setOpening };
   }
 
@@ -87,6 +112,6 @@ export function createGripperModel(spec: GripperSpec, parts: Record<string, THRE
     root.updateMatrixWorld(true);
     return true;
   };
-  setOpening(spec.maxMm);
+  setOpening(spec.opening!.max);
   return { root, setOpening };
 }

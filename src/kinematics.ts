@@ -67,7 +67,7 @@ export function flangeFromTcp(tcp: Pose, offset: Pose): Pose {
 
 /** Pose of the flange or fixed TCP relative to link_base, independent of the scene transform. */
 export function forward(robot: URDFRobot, eeLink?: string, offset?: Pose): Pose {
-  robot.updateMatrixWorld(true);
+  robot.updateWorldMatrix(true, true);
   const base = robot.links.link_base;
   const end = robot.links[resolveEeLink(robot, eeLink)];
   const relative = new Matrix4().copy(base.matrixWorld).invert().multiply(end.matrixWorld);
@@ -149,10 +149,16 @@ export class IKSolver {
     const normalizedTargetQuat = target.quaternion.clone().normalize();
     const flangeTarget = flangeFromTcp({ position: target.position, quaternion: normalizedTargetQuat }, this.offset);
 
-    this.robot.updateMatrixWorld(true);
+    this.robot.updateWorldMatrix(true, true);
     const base = this.robot.links.link_base;
-    const basePosition = base.getWorldPosition(new Vector3());
-    const baseQuaternion = base.getWorldQuaternion(new Quaternion());
+    const parentInverse = this.robot.parent
+      ? new Matrix4().copy(this.robot.parent.matrixWorld).invert()
+      : new Matrix4();
+    const baseInIkSpace = parentInverse.multiply(base.matrixWorld);
+    const basePosition = new Vector3();
+    const baseQuaternion = new Quaternion();
+    baseInIkSpace.decompose(basePosition, baseQuaternion, new Vector3());
+    baseQuaternion.normalize();
     const worldPosition = flangeTarget.position.clone().applyQuaternion(baseQuaternion).add(basePosition);
     const worldQuaternion = baseQuaternion.clone().multiply(flangeTarget.quaternion);
 

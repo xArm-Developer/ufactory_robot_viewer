@@ -1,5 +1,6 @@
 import { test, expect, devices } from '@playwright/test';
 import { readFileSync } from 'node:fs';
+import { selectRobot } from './selection-panels';
 
 interface FixtureSample { joints: number[]; position: number[] }
 const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as {
@@ -22,7 +23,7 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await expect(page.locator('h1')).toHaveText('xArm 6');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm6');
   await expect(page.locator('#control-card')).toBeVisible();
-  await expect(page.locator('#control-expand')).toBeHidden();
+  await expect(page.locator('#control-toggle, #control-expand')).toHaveCount(0);
   await expect(page.locator('#pose-panel')).toBeVisible();
   await expect(page.locator('#joint-panel')).toBeHidden();
   await expect(page.locator('#joint-tab')).toHaveText('关节控制');
@@ -88,22 +89,21 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await expect(page.locator('#stage-joint-0')).toHaveText('20.00');
   expect(Math.abs(Number(await page.locator('#fk-1').innerText()))).toBeGreaterThan(10);
 
-  await page.locator('#reset-pose').click();
+  await page.locator('#joint-number-0').fill('0');
+  await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
   await expect(page.locator('#fk-1')).toHaveText('0.00');
 
   await page.locator('#cartesian-tab').click();
   await expect(page.locator('#pose-panel')).toBeVisible();
 
-  // Verify UFACTORY Studio Cartesian jog defaults, step tap, speed percentage, and continuous hold from all-zero pose
-  await expect(page.locator('#pos-step')).toHaveValue('1');
-  await expect(page.locator('#rot-step')).toHaveValue('1');
+  // Jog uses fixed default steps while speed remains adjustable.
+  await expect(page.locator('#pos-step, #rot-step, #control-title, .pose-heading, .cartesian-description')).toHaveCount(0);
   await expect(page.locator('#jog-speed')).toHaveValue('20');
-  await expect(page.locator('#jog-speed-readout')).toHaveText('20% · 50.0 mm/s · 20 °/s');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('20%');
 
   const homeX = Number(await page.locator('#fk-0').innerText());
   const homeY = Number(await page.locator('#fk-1').innerText());
-  const homeZ = Number(await page.locator('#fk-2').innerText());
   const homeYaw = Number(await page.locator('#fk-5').innerText());
 
   await page.locator('[data-jog-axis="x"][data-jog-dir="1"]').click();
@@ -113,31 +113,21 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await page.locator('[data-jog-axis="yaw"][data-jog-dir="1"]').click();
   expect(Number(await page.locator('#fk-5').innerText()) - homeYaw).toBeCloseTo(1, 1);
 
-  await page.locator('#pos-step').fill('5');
   await page.locator('[data-jog-axis="y"][data-jog-dir="1"]').click();
-  expect(Number(await page.locator('#fk-1').innerText()) - homeY).toBeCloseTo(5, 1);
-  expect(Math.abs(Number(await page.locator('#stage-joint-0').innerText()))).toBeGreaterThan(0.5);
-
-  // Invalid step input reports clear validation status without changing pose
-  const yBeforeInvalid = await page.locator('#fk-1').innerText();
-  await page.locator('#pos-step').fill('0');
-  await page.locator('[data-jog-axis="y"][data-jog-dir="1"]').click();
-  await expect(page.locator('#status-text')).toContainText('valid value');
-  await expect(page.locator('#fk-1')).toHaveText(yBeforeInvalid);
-  await page.locator('#pos-step').fill('1');
+  expect(Number(await page.locator('#fk-1').innerText()) - homeY).toBeCloseTo(1, 1);
 
   // Verify speed slider 1% (2.5 mm/s) and 100% (250 mm/s)
   await page.locator('#jog-speed').fill('1');
   await page.locator('#jog-speed').dispatchEvent('input');
-  await expect(page.locator('#jog-speed-readout')).toHaveText('1% · 2.5 mm/s · 1 °/s');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('1%');
   await page.locator('#jog-speed').fill('100');
   await page.locator('#jog-speed').dispatchEvent('input');
-  await expect(page.locator('#jog-speed-readout')).toHaveText('100% · 250.0 mm/s · 100 °/s');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('100%');
 
-  // Long-press continuous motion on Z+ at 40% (100 mm/s) starting from reset all-zero pose
-  await page.locator('#reset-pose').click();
+  // Long-press continuous motion on Z+ at 40% (100 mm/s).
   await page.locator('#jog-speed').fill('40');
   await page.locator('#jog-speed').dispatchEvent('input');
+  const zBeforeHold = Number(await page.locator('#fk-2').innerText());
   const zPlus = page.locator('[data-jog-axis="z"][data-jog-dir="1"]');
   await zPlus.scrollIntoViewIfNeeded();
   const zBox = (await zPlus.boundingBox())!;
@@ -146,23 +136,22 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await page.waitForTimeout(950);
   await page.mouse.up();
   const zAfterHold = Number(await page.locator('#fk-2').innerText());
-  expect(zAfterHold - homeZ).toBeGreaterThan(20);
+  expect(zAfterHold - zBeforeHold).toBeGreaterThan(20);
   await page.waitForTimeout(350);
   expect(Number(await page.locator('#fk-2').innerText())).toBeCloseTo(zAfterHold, 2);
 
-  // Collapse unified panel into vertical control button and expand back
-  const expandedStageWidth = (await page.locator('#stage').boundingBox())!.width;
-  await page.locator('#control-toggle').click();
-  await expect(page.locator('#control-card')).toBeHidden();
-  await expect(page.locator('#control-expand')).toBeVisible();
-  const expandButtonBox = (await page.locator('#control-expand').boundingBox())!;
-  expect(expandButtonBox.height).toBeGreaterThan(expandButtonBox.width);
-  const collapsedStageWidth = (await page.locator('#stage').boundingBox())!.width;
-  expect(collapsedStageWidth).toBeGreaterThan(expandedStageWidth + 300);
-
-  await page.locator('#control-expand').click();
-  await expect(page.locator('#control-card')).toBeVisible();
-  await expect(page.locator('#control-expand')).toBeHidden();
+  // The stage keeps its size when the control contents change.
+  const stageSize = await page.locator('#stage').evaluate(el => ({ width: el.clientWidth, height: el.clientHeight }));
+  await page.locator('#joint-tab').click();
+  expect(await page.locator('#stage').evaluate(el => ({ width: el.clientWidth, height: el.clientHeight }))).toEqual(stageSize);
+  await page.locator('#cartesian-tab').click();
+  await expect(page.locator('#robot-select')).toHaveValue('xarm6');
+  await page.setViewportSize({ width: 800, height: 900 });
+  expect((await page.locator('#stage').boundingBox())!.width).toBeGreaterThan(700);
+  const stageBox = (await page.locator('#stage').boundingBox())!;
+  const modelsBox = (await page.locator('#robot-models').boundingBox())!;
+  expect(modelsBox.y + modelsBox.height).toBeLessThanOrEqual(stageBox.y);
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
 
@@ -175,13 +164,15 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   page.on('pageerror', error => errors.push(error.message));
 
   await ready(page);
-  await expect(page.locator('#robot-select option:not([value=standalone])')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
+  await expect(page.locator('#robot-select option:not([value="standalone"])')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
   await page.locator('#toggle-tcp-frame').click();
   await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
 
   // 1. Switch to xArm 5 (5 DoF, 6 GLBs, Roll+ / Roll- disabled with solid gray background)
   loadedGlbs.length = 0;
-  await page.locator('#robot-select').selectOption('xarm5');
+  await selectRobot(page, 'xarm5');
+  await expect(page.locator('#control-card')).toBeVisible();
+  await expect(page.locator('#robot-select')).toHaveValue('xarm5');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm5');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   expect(loadedGlbs).toHaveLength(6);
@@ -210,7 +201,7 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
 
   // 2. Switch to xArm 7 (7 DoF, 8 GLBs, Roll± re-enabled, 7th joint active)
   loadedGlbs.length = 0;
-  await page.locator('#robot-select').selectOption('xarm7');
+  await selectRobot(page, 'xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   expect(loadedGlbs).toHaveLength(8);
@@ -231,7 +222,7 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
 
   // 3. Switch to 850 (named "850", 7 GLBs, inline wrist Roll- from zero pose)
   loadedGlbs.length = 0;
-  await page.locator('#robot-select').selectOption('uf850');
+  await selectRobot(page, 'uf850');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'uf850');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   expect(loadedGlbs).toHaveLength(7);
@@ -315,7 +306,7 @@ test('touch-size layout loads with model switcher, 7-joint telemetry, coordinate
   await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
 
   // Switch to 7-DoF xArm 7 on mobile viewport and confirm zero horizontal overflow
-  await page.locator('#robot-select').selectOption('xarm7');
+  await selectRobot(page, 'xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm7');
   await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
   await expect(page.locator('#stage-joint-fields .telemetry-cell')).toHaveCount(7);
@@ -326,7 +317,8 @@ test('touch-size layout loads with model switcher, 7-joint telemetry, coordinate
   await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#joint-number-0')).toHaveValue('15.00');
   await expect(page.locator('#stage-joint-0')).toHaveText('15.00');
-  await page.locator('#reset-pose').click();
+  await page.locator('#joint-number-0').fill('0');
+  await page.locator('#joint-number-0').dispatchEvent('change');
   await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
 
   await page.locator('#cartesian-tab').click();
@@ -337,6 +329,9 @@ test('touch-size layout loads with model switcher, 7-joint telemetry, coordinate
 
   await page.locator('#view-reset').click();
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  await page.setViewportSize({ width: 320, height: 700 });
+  expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+  expect(await page.locator('#fk-fields output').evaluateAll(outputs => outputs.every(output => output.scrollWidth <= output.clientWidth))).toBe(true);
   await context.close();
 });
 

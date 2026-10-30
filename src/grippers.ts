@@ -2,29 +2,38 @@ import { Quaternion, Vector3 } from 'three';
 import type { Pose } from './kinematics';
 import type { RobotId } from './robots';
 
-export type GripperId = 'gripper-g2' | 'bio-gripper-g2';
+export type GripperId = 'gripper-g2' | 'bio-gripper-g2' | 'lite6-gripper' | 'lite6-vacuum-gripper';
 export interface GripperSpec {
   id: GripperId;
   name: string;
-  minMm: number;
-  maxMm: number;
+  opening?:
+    | { mode: 'continuous'; min: number; max: number; unit: 'mm' }
+    | { mode: 'binary'; min: 0; max: 100 };
   productUrl: string;
 }
 
 export const GRIPPERS: readonly GripperSpec[] = [
-  { id: 'gripper-g2', name: 'Gripper G2', minMm: 0, maxMm: 84, productUrl: 'https://www.shop.ufactory.cc/products/gripper-g2' },
-  { id: 'bio-gripper-g2', name: 'BIO Gripper G2', minMm: 71, maxMm: 150, productUrl: 'https://www.shop.ufactory.cc/products/bio-gripper-g2' },
+  { id: 'gripper-g2', name: 'Gripper G2', opening: { mode: 'continuous', min: 0, max: 84, unit: 'mm' }, productUrl: 'https://www.shop.ufactory.cc/products/gripper-g2' },
+  { id: 'bio-gripper-g2', name: 'BIO Gripper G2', opening: { mode: 'continuous', min: 71, max: 150, unit: 'mm' }, productUrl: 'https://www.shop.ufactory.cc/products/bio-gripper-g2' },
+  { id: 'lite6-gripper', name: 'Gripper Lite', opening: { mode: 'binary', min: 0, max: 100 }, productUrl: 'https://docs.lite6.ufactory.cc/5.End-Effector.html#_5-1-gripper-lite' },
+  { id: 'lite6-vacuum-gripper', name: 'Vacuum Gripper Lite', productUrl: 'https://docs.lite6.ufactory.cc/5.End-Effector.html#_5-2-vacuum-gripper-lite' },
 ];
 
 export function getGripper(id: string | null | undefined): GripperSpec | undefined {
   return GRIPPERS.find(spec => spec.id === id);
 }
 
-export function supportsGripper(robotId: RobotId): boolean { return robotId !== 'lite6'; }
+export function supportsGripper(robotId: RobotId, gripperId: GripperId): boolean {
+  const liteGripper = gripperId === 'lite6-gripper' || gripperId === 'lite6-vacuum-gripper';
+  return (robotId === 'lite6') === liteGripper;
+}
 
-/** Only accept finite, in-range values on the 0.1 mm control grid. */
+/** Binary grippers accept only their endpoints; continuous grippers use a 0.1 mm grid. */
 export function validOpening(spec: GripperSpec, value: number): boolean {
-  return Number.isFinite(value) && value >= spec.minMm && value <= spec.maxMm && Math.abs(value * 10 - Math.round(value * 10)) < 1e-7;
+  const opening = spec.opening;
+  if (!opening || !Number.isFinite(value)) return false;
+  if (opening.mode === 'binary') return value === opening.min || value === opening.max;
+  return value >= opening.min && value <= opening.max && Math.abs(value * 10 - Math.round(value * 10)) < 1e-7;
 }
 
 // Fixed attachment of BIO base to each arm's flange, from the corresponding combination URDF.
@@ -36,8 +45,8 @@ const BIO_MOUNTS: Partial<Record<RobotId, { xyz: [number, number, number]; yaw: 
 };
 
 export function gripperMount(robotId: RobotId, id: GripperId): Pose {
-  if (!supportsGripper(robotId)) throw new Error(`Unsupported gripper on ${robotId}`);
-  if (id === 'gripper-g2') return { position: new Vector3(), quaternion: new Quaternion() };
+  if (!supportsGripper(robotId, id)) throw new Error(`Unsupported gripper on ${robotId}`);
+  if (id !== 'bio-gripper-g2') return { position: new Vector3(), quaternion: new Quaternion() };
   const mount = BIO_MOUNTS[robotId]!;
   return { position: new Vector3(...mount.xyz), quaternion: new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), mount.yaw) };
 }
@@ -46,7 +55,9 @@ export function gripperMount(robotId: RobotId, id: GripperId): Pose {
 export function toolOffset(robotId: RobotId, id?: GripperId): Pose {
   if (!id) return { position: new Vector3(), quaternion: new Quaternion() };
   const mount = gripperMount(robotId, id);
-  const localTcp = id === 'gripper-g2' ? new Vector3(0, 0, 0.1735) : new Vector3(0.135, 0, 0.055);
+  const localTcp = id === 'gripper-g2' ? new Vector3(0, 0, 0.1735)
+    : id === 'bio-gripper-g2' ? new Vector3(0.135, 0, 0.055)
+      : new Vector3(0, 0, id === 'lite6-gripper' ? 0.0836 : 0.061);
   return { position: localTcp.applyQuaternion(mount.quaternion).add(mount.position), quaternion: mount.quaternion.clone() };
 }
 

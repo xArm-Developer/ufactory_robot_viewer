@@ -1,4 +1,5 @@
 import { expect, test, devices, type Page } from '@playwright/test';
+import { selectRobot } from './selection-panels';
 
 const products = [
   { id: 'xarm5', name: 'xArm 5', url: 'https://www.shop.ufactory.cc/products/xarm-5' },
@@ -35,7 +36,7 @@ test('inventory follows all robot selections and direct links in both languages'
   await expect(page.getByText('关于这个演示', { exact: true })).toHaveCount(0);
 
   for (const product of products) {
-    await page.locator('#robot-select').selectOption(product.id);
+    await selectRobot(page, product.id);
     await expectReady(page, product.id);
     await expectProduct(page, product);
   }
@@ -84,7 +85,7 @@ test('loading, failed model and retry never show the previous asset', async ({ p
   await page.goto('/');
   await expectReady(page, 'xarm6');
   await expectProduct(page, products[1]);
-  await page.locator('#robot-select').selectOption('xarm5');
+  await selectRobot(page, 'xarm5');
   await intercepted;
   await expect(page.locator('#assets a')).toHaveCount(0);
   await expect(page.locator('#assets')).toContainText('加载');
@@ -119,11 +120,11 @@ test('a stale same-model failure and a stale success cannot replace the current 
 
   await page.goto('/');
   await expectReady(page, 'xarm6');
-  await page.locator('#robot-select').selectOption('xarm5');
+  await selectRobot(page, 'xarm5');
   await firstIntercepted;
-  await page.locator('#robot-select').selectOption('xarm7');
+  await selectRobot(page, 'xarm7');
   await expectReady(page, 'xarm7');
-  await page.locator('#robot-select').selectOption('xarm5');
+  await selectRobot(page, 'xarm5');
   await expectReady(page, 'xarm5');
   await expectProduct(page, products[0]);
   releaseFirst();
@@ -142,9 +143,9 @@ test('a stale same-model failure and a stale success cannot replace the current 
     await secondGate;
     await route.continue();
   });
-  await page.locator('#robot-select').selectOption('uf850');
+  await selectRobot(page, 'uf850');
   await secondIntercepted;
-  await page.locator('#robot-select').selectOption('lite6');
+  await selectRobot(page, 'lite6');
   await expectReady(page, 'lite6');
   await expectProduct(page, products[4]);
   releaseSecond();
@@ -183,7 +184,7 @@ test('a lost WebGL context clears the inventory and invalidates pending loads', 
   });
   await page.goto('/');
   await expectReady(page, 'xarm6');
-  await page.locator('#robot-select').selectOption('xarm5');
+  await selectRobot(page, 'xarm5');
   await intercepted;
   await page.locator('#canvas-area canvas').evaluate(canvas => {
     canvas.dispatchEvent(new Event('webglcontextlost', { cancelable: true }));
@@ -196,7 +197,7 @@ test('a lost WebGL context clears the inventory and invalidates pending loads', 
   await expect(page.locator('#stage')).not.toHaveAttribute('data-ready', 'true');
   await page.locator('#language').click();
   await expect(page.locator('#assets')).toContainText('3D view could not start');
-  await page.locator('#robot-select').selectOption('xarm7');
+  await selectRobot(page, 'xarm7');
   await expect(page.locator('#assets')).toContainText('3D view could not start');
   await expect(page.locator('#assets a')).toHaveCount(0);
 });

@@ -1,8 +1,16 @@
 // @vitest-environment jsdom
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { Euler, MathUtils, Quaternion, Vector3 } from 'three';
+import { Euler, Group, MathUtils, Quaternion, Vector3 } from 'three';
 import URDFLoader from 'urdf-loader';
+import {
+  assemblyToolOffset,
+  RAIL_CAD_TO_WORLD,
+  RAIL_ORIGIN_WORLD,
+  ROBOT_BASE_CAD,
+  ROBOT_BASE_WORLD_ROTATION,
+  ROBOT_MOUNT_CAD_ROTATION,
+} from '../src/accessories';
 import {
   forward,
   fromRPY,
@@ -185,5 +193,65 @@ describe.each(ROBOTS)('$name ($id, $dof DoF) kinematics', spec => {
     }
     const afterContinuous = forward(model, spec.eeLink);
     expect((afterContinuous.position.z - startZ.position.z) * 1000).toBeCloseTo(25 * frameDeltaMm, 1);
+  });
+});
+
+describe.each(['xarm5', 'xarm6', 'xarm7'] as const)('%s linear-rail carriage mount invariance', id => {
+  const spec = getRobotSpec(id);
+
+  it('keeps base-frame FK, IK jog convergence, and mount transforms invariant across 0 / 350 / 700 mm carriage travel', () => {
+    const unmounted = loadRobotModel(spec);
+    const mounted = loadRobotModel(spec);
+    const offset = assemblyToolOffset(id, { sensor: true, gripperId: 'gripper-g2' });
+
+    const unmountedSolver = new IKSolver(unmounted, spec.eeLink);
+    unmountedSolver.setToolOffset(offset);
+
+    const mountedSolver = new IKSolver(mounted, spec.eeLink);
+    mountedSolver.setToolOffset(offset);
+
+    const railFrame = new Group();
+    railFrame.position.copy(RAIL_ORIGIN_WORLD);
+    railFrame.quaternion.copy(RAIL_CAD_TO_WORLD);
+
+    const carriage = new Group();
+    railFrame.add(carriage);
+
+    const robotMount = new Group();
+    robotMount.position.copy(ROBOT_BASE_CAD);
+    robotMount.quaternion.copy(ROBOT_MOUNT_CAD_ROTATION);
+    carriage.add(robotMount);
+    robotMount.add(mounted);
+
+    const expectedMountQuat = robotMount.quaternion.clone();
+
+    for (const railMm of [0, 350, 700]) {
+      expect(setJoints(unmounted, homeJoints(spec.dof))).toBe(true);
+      expect(setJoints(mounted, homeJoints(spec.dof))).toBe(true);
+      carriage.position.z = -railMm / 1000;
+      railFrame.updateMatrixWorld(true);
+      expect(mounted.links.link_base.getWorldQuaternion(new Quaternion()).angleTo(ROBOT_BASE_WORLD_ROTATION)).toBeLessThan(1e-7);
+
+      const fkUnmounted = forward(unmounted, spec.eeLink, offset);
+      const fkMounted = forward(mounted, spec.eeLink, offset);
+      expect(fkMounted.position.distanceTo(fkUnmounted.position)).toBeLessThan(1e-7);
+      expect(fkMounted.quaternion.angleTo(fkUnmounted.quaternion)).toBeLessThan(1e-7);
+
+      for (const axis of ['x', 'z', 'pitch', 'yaw'] as const) {
+        const target = stepBasePose(forward(mounted, spec.eeLink, offset), axis, 1);
+        expect(unmountedSolver.solve(target)).toMatchObject({ ok: true });
+        expect(mountedSolver.solve(target)).toMatchObject({ ok: true });
+
+        const actualMounted = forward(mounted, spec.eeLink, offset);
+        expect(actualMounted.position.distanceTo(target.position)).toBeLessThan(0.001);
+        expect(actualMounted.quaternion.angleTo(target.quaternion)).toBeLessThan(MathUtils.degToRad(1));
+
+        // Verify local transforms of robotMount and URDFRobot remain untouched by closed-chain-ik
+        expect(robotMount.position.distanceTo(ROBOT_BASE_CAD)).toBeLessThan(1e-9);
+        expect(robotMount.quaternion.equals(expectedMountQuat)).toBe(true);
+        expect(mounted.position.length()).toBeLessThan(1e-9);
+        expect(mounted.quaternion.angleTo(new Quaternion())).toBeLessThan(1e-9);
+      }
+    }
   });
 });

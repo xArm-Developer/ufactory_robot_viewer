@@ -7,8 +7,10 @@ import { bioFingerTravel, GRIPPERS, supportsGripper, toolOffset, validOpening } 
 import { forward, homeJoints, IKSolver, jointValues, setJoints, stepBasePose } from '../src/kinematics';
 import { getRobotSpec, type RobotId } from '../src/robots';
 import fixtures from './mujoco-gripper-fk.json';
+import liteFixtures from './mujoco-lite6-tool-fk.json';
 
 const robots = ['xarm5', 'xarm6', 'xarm7', 'uf850'] as const;
+const legacyGrippers = GRIPPERS.filter(gripper => supportsGripper('xarm6', gripper.id));
 
 function loadRobot(id: RobotId) {
   const spec = getRobotSpec(id);
@@ -20,16 +22,24 @@ function loadRobot(id: RobotId) {
 }
 
 describe('opening geometry', () => {
-  it('accepts only finite 0.1 mm values within each specified range', () => {
+  it('accepts finite 0.1 mm values for continuous grippers and endpoints for the Lite gripper', () => {
     for (const spec of GRIPPERS) {
-      expect(validOpening(spec, spec.minMm)).toBe(true);
-      expect(validOpening(spec, spec.maxMm)).toBe(true);
-      expect(validOpening(spec, spec.minMm + 0.1)).toBe(true);
-      for (const value of [NaN, Infinity, spec.minMm - 0.1, spec.maxMm + 0.1, spec.minMm + 0.05]) {
+      if (!spec.opening) {
+        expect(validOpening(spec, 0)).toBe(false);
+        continue;
+      }
+      const { min, max } = spec.opening;
+      expect(validOpening(spec, min)).toBe(true);
+      expect(validOpening(spec, max)).toBe(true);
+      expect(validOpening(spec, min + 0.1)).toBe(spec.opening.mode === 'continuous');
+      for (const value of [NaN, Infinity, min - 0.1, max + 0.1, min + 0.05]) {
         expect(validOpening(spec, value)).toBe(false);
       }
     }
-    expect(supportsGripper('lite6')).toBe(false);
+    const lite = GRIPPERS.find(spec => spec.id === 'lite6-gripper')!;
+    for (const value of [0.1, 30, 50, 99.9]) expect(validOpening(lite, value)).toBe(false);
+    expect(GRIPPERS.filter(spec => supportsGripper('lite6', spec.id)).map(spec => spec.id)).toEqual(['lite6-gripper', 'lite6-vacuum-gripper']);
+    for (const id of robots) expect(GRIPPERS.filter(spec => supportsGripper(id, spec.id))).toEqual(legacyGrippers);
     expect(bioFingerTravel(71)).toBe(0);
     expect(bioFingerTravel(110)).toBeCloseTo(0.0195, 12);
     expect(bioFingerTravel(150)).toBeCloseTo(0.0395, 12);
@@ -40,10 +50,10 @@ describe('opening geometry', () => {
 
 describe.each(robots)('%s arm + gripper TCP', id => {
   const spec = getRobotSpec(id);
-  it.each(GRIPPERS)('matches MuJoCo reference combo URDF across all poses: $name', gripper => {
+  it.each(legacyGrippers)('matches MuJoCo reference combo URDF across all poses: $name', gripper => {
     const robot = loadRobot(id);
     const offset = toolOffset(id, gripper.id);
-    const samples = fixtures.robots[id][gripper.id];
+    const samples = fixtures.robots[id][gripper.id as 'gripper-g2' | 'bio-gripper-g2'];
     for (const sample of samples) {
       expect(setJoints(robot, sample.joints)).toBe(true);
       const actual = forward(robot, spec.eeLink, offset);
@@ -54,7 +64,7 @@ describe.each(robots)('%s arm + gripper TCP', id => {
     }
   });
 
-  it.each(GRIPPERS)('jogs the fixed TCP and restores joints after a failed target: $name', gripper => {
+  it.each(legacyGrippers)('jogs the fixed TCP and restores joints after a failed target: $name', gripper => {
     const robot = loadRobot(id);
     const offset = toolOffset(id, gripper.id);
     const solver = new IKSolver(robot, spec.eeLink);
@@ -70,5 +80,28 @@ describe.each(robots)('%s arm + gripper TCP', id => {
     const before = jointValues(robot);
     expect(solver.solve({ position: new Vector3(10, 10, 10), quaternion: new Quaternion() }).ok).toBe(false);
     jointValues(robot).forEach((value, index) => expect(value).toBeCloseTo(before[index], 6));
+  });
+});
+
+describe('Lite 6 tool TCP', () => {
+  it.each([
+    { id: 'lite6-gripper' as const, samples: liteFixtures.tools.gripper },
+    { id: 'lite6-vacuum-gripper' as const, samples: liteFixtures.tools.vacuum },
+  ])('matches the independent MuJoCo combination URDF: $id', ({ id, samples }) => {
+    const robot = loadRobot('lite6');
+    const offset = toolOffset('lite6', id);
+    const solver = new IKSolver(robot, 'link6');
+    solver.setToolOffset(offset);
+    for (const sample of samples) {
+      expect(setJoints(robot, sample.joints)).toBe(true);
+      const actual = forward(robot, 'link6', offset);
+      expect(actual.position.distanceTo(new Vector3(...sample.position as [number, number, number]))).toBeLessThan(0.0001);
+      expect(actual.quaternion.angleTo(new Quaternion(...sample.quaternion as [number, number, number, number]))).toBeLessThan(MathUtils.degToRad(0.01));
+    }
+    setJoints(robot, samples[1].joints);
+    const target = stepBasePose(forward(robot, 'link6', offset), 'z', 1);
+    expect(solver.solve(target)).toMatchObject({ ok: true });
+    expect(forward(robot, 'link6', offset).position.distanceTo(target.position)).toBeLessThan(0.001);
+    expect(() => toolOffset('xarm6', id)).toThrow(/Unsupported gripper/);
   });
 });
