@@ -1,6 +1,6 @@
 # 0.0.6 需求分析与开发计划
 
-状态：本地功能、改名及 BSD-3-Clause 已完成并通过回归；仓库迁移、Cloudflare 线上发布和订阅真实成功链路仍待验证。本文保留实施计划和验收依据。
+状态：本地功能、改名及 BSD-3-Clause 已完成并通过回归；现有 Cloudflare 站点已上线，私有仓库已迁移。迁移后的自动部署和订阅真实成功链路仍待验证。本文保留实施计划和验收依据。
 
 ## 1. 现状与基准
 
@@ -33,7 +33,7 @@
 
 - **改名**：将项目命名为 `ufactory_robot_viewer`，检查 `package.json`、锁文件、README、页面标题及仓库引用。当前场景和速度使用 `uf-robots:*` 本地存储键；同域名下应保留兼容，避免改名导致用户场景丢失。
 - **BSD 许可**：确认具体 BSD 版本及版权主体后补充项目根目录许可证，并保留各模型、解码器及依赖的既有来源和许可声明；不将第三方资产的许可一并改写。
-- **迁移**：当前 `origin` 为 `DanielWang123321/uf_robots`。确认目标 `xArm-Developer/ufactory_robot_viewer` 的名称、目标组织权限、私有属性和现有分支/标签/发布记录后，按 [GitHub 仓库迁移说明](https://docs.github.com/en/repositories/creating-and-managing-repositories/transferring-a-repository)迁移并核验。
+- **迁移**：原 `origin` 为 `DanielWang123321/uf_robots`，已按 [GitHub 仓库迁移说明](https://docs.github.com/en/repositories/creating-and-managing-repositories/transferring-a-repository)迁至私有仓库 `xArm-Developer/ufactory_robot_viewer`，并核实 `main`、历史标签及 Release。
 - **部署连续性**：迁移前记录 Cloudflare Pages 配置与当前线上版本；迁移后检查 GitHub App 授权和自动部署。[Cloudflare 文档](https://developers.cloudflare.com/pages/configuration/git-integration/troubleshooting/)指出仓库转移可能使原项目断开，需准备以迁移后仓库创建新 Pages 项目及验证线上资源的方案。保留旧部署直至新部署验收；若访问域名改变，另行处理旧链接和浏览器同源存储的兼容。
 
 ## 5. 实施与回归顺序

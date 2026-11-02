@@ -57,14 +57,14 @@ npm run dev
 
 [Cloudflare Pages Git 集成](https://developers.cloudflare.com/pages/get-started/git-integration/)支持私有 GitHub 仓库和生产分支自动部署。项目参数：
 
-- 仓库：`DanielWang123321/uf_robots`，生产分支：`main`。
+- 仓库：`xArm-Developer/ufactory_robot_viewer`（私有），生产分支：`main`。
 - Pages 项目：`uf-robots`，地址：`https://uf-robots.pages.dev`。
 - 构建命令：`npm run build`；构建输出：`dist`；根目录：仓库根目录。
 - Node 版本：`24.13.0`，可通过 Pages 环境变量 `NODE_VERSION` 固定；仓库也提供 `.nvmrc`。
 
 构建从 URDF 生成并校验视觉网格清单，为大于 128 KiB 且压缩后缩小至少 20% 的 GLB 生成无损 gzip 副本；副本以原始内容 SHA-256 命名并以 `.bin` 结尾，须作为原始二进制返回。生成的 `_headers` 只为这些带指纹的资源设置长期浏览器缓存。机械臂和已选配件并行准备，场景按解码后的网格与纹理大小限制缓存为 64 MiB（正在使用的资源保留）；不支持解压 API 时使用原文件。
 
-在 Pages 的 **Create application → Pages → Connect to Git** 中授权并选择仓库，填入上述参数，再执行首次部署。之后推送 `main` 会触发自动构建。部署后须验证公开网址、资源响应头和加载表现，不能仅凭本地构建视为完成。
+现有站点已部署 0.0.6；仓库迁移后的 Git 应用授权和自动构建尚待恢复验证。在 Pages 的 **Create application → Pages → Connect to Git** 中授权并选择仓库，填入上述参数，再执行首次部署。部署后须验证公开网址、资源响应头和加载表现，不能仅凭本地构建视为完成。
 
 ## 资料与许可
 
