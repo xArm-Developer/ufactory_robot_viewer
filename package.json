@@ -1,7 +1,8 @@
 {
-  "name": "uf-robots",
-  "version": "0.0.5",
+  "name": "ufactory_robot_viewer",
+  "version": "0.0.6",
   "private": true,
+  "license": "BSD-3-Clause",
   "type": "module",
   "engines": {
     "node": "24.x"

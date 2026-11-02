@@ -1,8 +1,10 @@
-# UF Robots · UFACTORY Studio
+# UFACTORY Robot Viewer
 
-基于 Three.js 的 UFACTORY 机械臂与配件交互展示，当前版本 **0.0.5**。支持五款机械臂（`xArm 5`、`xArm 6`、`xArm 7`、`850`、`Lite 6`）、直线滑轨（`AL0700`）、六维力矩传感器（`AI1500`）及四款末端工具（`Gripper G2`、`BIO Gripper G2`、`Gripper Lite`、`Vacuum Gripper Lite`）的三维查看、中英文界面、关节控制、笛卡尔点动、直线滑轨行程控制、固定 TCP 坐标系、基座 `z=0` 平面 TCP 理论可达圆环、浏览器本地场景持久化及实时三维几何碰撞检测（碰撞拦截回退与发生碰撞部件变红提示）；末端配件按兼容关系组合装配（如 `xArm + 六维力矩传感器 + 夹爪 + 直线滑轨`）。`xArm 5/6/7` 使用 1305 版本。机械臂查看页不连接真机；示例页另提供浏览器端动力学装箱演示。
+基于 Three.js 的 UFACTORY 机械臂与配件交互展示，当前开发版本 **0.0.6**。支持五款机械臂（`xArm 5`、`xArm 6`、`xArm 7`、`850`、`Lite 6`）、直线滑轨（`AL0700`）、六维力矩传感器（`AI1500`）及四款末端工具（`Gripper G2`、`BIO Gripper G2`、`Gripper Lite`、`Vacuum Gripper Lite`）的三维查看、中英文界面、关节控制、笛卡尔点动、直线滑轨行程控制、固定 TCP 坐标系、基座 `z=0` 平面 TCP 理论可达圆环、浏览器本地场景持久化及实时三维几何碰撞检测（碰撞拦截回退与发生碰撞部件变红提示）；末端配件按兼容关系组合装配（如 `xArm + 六维力矩传感器 + 夹爪 + 直线滑轨`）。`xArm 5/6/7` 使用 1305 版本。机械臂查看页不连接真机；示例页另提供浏览器端动力学装箱演示。
 
 3D 体验区下方的资产清单列出场景中已加载的产品及其 UFACTORY 官方商城介绍页，链接在新标签页打开；加载中或加载失败时显示相应状态。配件条目以实际场景为准。
+
+页脚按 UFACTORY 官网中英文版本显示导航、联系方式与社交入口；订阅提交经同源服务转发至官网。官网当前隐私政策和法律声明未提供目标地址，页面保留对应文字。
 
 ## 本地运行
 
@@ -14,6 +16,8 @@ npm run dev
 ```
 
 浏览器打开终端输出的地址。手机在同一局域网时，可使用终端输出的网络地址。`npm run build` 输出 `dist/`；`npm run preview` 预览生产构建。
+
+订阅接口在开发服务中使用同源代理；Cloudflare Pages 部署时由 `functions/api/subscribe.ts` 提供。纯 Vite `preview` 仅提供静态文件，不运行 Pages Functions；验证生产订阅接口须使用 Pages Functions 运行环境。
 
 - `npm run typecheck`：TypeScript 类型检查。
 - `npm test`：视觉开口几何、URDF、MuJoCo FK/碰撞基准、IK、末端调平、基座 `z=0` 可达半径、本地场景存储、几何碰撞及装箱场景测试。
@@ -64,5 +68,6 @@ npm run dev
 
 ## 资料与许可
 
+- 项目代码使用 [BSD-3-Clause](LICENSE)；第三方资源沿用各自的来源和许可。页脚官网品牌资源及字体说明见 `public/branding/SOURCE.md`。
 - 模型与资产来源、版本、SHA-256 和许可证见 `public/models/` 各型号的 `SOURCE.md`、`NOTICE`、`SHA256SUMS` 及 `public/examples/packing-01/`；运动学基准的原始组合 URDF 及校验值见 `tests/reference-urdfs/`。
 - UFACTORY 官方用户手册：[xArm 系列](https://www.ufactory.cc/wp-content/uploads/2024/02/xArm-User-Manual-V2.3.0.pdf)、[850](https://www.ufactory.cc/wp-content/uploads/2023/07/UFactory-850-User-Manual-V2.1.0.pdf)、[Lite 6](https://www.ufactory.cc/wp-content/uploads/2023/04/Lite-6-Developer-Manual-V1.11.0.pdf)。

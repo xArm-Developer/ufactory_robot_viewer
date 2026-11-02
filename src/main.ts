@@ -31,6 +31,7 @@ import { renderAssetInventory, type SceneAsset } from './assets';
 import { formatCollisionBodyName, type CollisionBodyId, type CollisionPair } from './collision';
 import { levelFlange } from './leveling';
 import { RobotScene } from './scene';
+import { SiteFooter } from './footer';
 import { SCENE_VERSION, SceneStorage, type SceneSnapshot } from './scene-storage';
 import type { URDFRobot } from 'urdf-loader';
 import type { PackingExample } from './packing';
@@ -95,7 +96,6 @@ const copy = {
     gripperClosed: '闭合',
     inventoryTitle: '当前场景资产',
     inventoryHint: '查看当前产品的 UFACTORY 官方介绍。',
-    footer: '独立产品探索项目 · UFACTORY 与 xArm 是其各自所有者的商标',
   },
   en: {
     pageRobot: 'Robot',
@@ -147,7 +147,6 @@ const copy = {
     gripperClosed: 'Closed',
     inventoryTitle: 'Assets in this scene',
     inventoryHint: 'Explore the current products on the UFACTORY website.',
-    footer: 'Independent product exploration · UFACTORY and xArm are trademarks of their respective owners',
   },
 } as const;
 type Key = keyof typeof copy.zh;
@@ -165,7 +164,7 @@ function buildJointTelemetryHtml(dof: number): string {
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="site-header">
-    <a class="brand" href="#top" aria-label="UF Robots home"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOTS <small> / STUDIO</small></span></a>
+    <a class="brand" href="#top" aria-label="UFACTORY Robot Viewer home"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOT VIEWER</span></a>
     <nav class="page-nav" aria-label="Pages"><a id="page-robot" href="?" data-t="pageRobot"></a><a id="page-examples" href="?example=packing-01" data-t="pageExamples"></a></nav>
     <button class="language" id="language" type="button" aria-label="Switch language"><span class="language-icon">◎</span> <span id="language-label">EN</span></button>
   </header>
@@ -389,13 +388,15 @@ app.innerHTML = `
     </section>
     <section class="inventory-section" id="assets" aria-labelledby="inventory-title"><div class="page-width inventory-inner"><div><span class="section-index">01 <span>/</span> ASSETS</span><h2 id="inventory-title" data-t="inventoryTitle"></h2><p data-t="inventoryHint"></p></div><div class="asset-list" id="asset-list" role="status" aria-live="polite" aria-atomic="true"></div></div></section>
   </main>
-  <footer class="page-width"><div class="brand footer-brand"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOTS</span></div><span data-t="footer"></span><span>© 2026</span></footer>`;
+  <footer id="site-footer" class="site-footer"></footer>`;
 
 const $ = <T extends HTMLElement = HTMLElement>(selector: string) => {
   const el = document.querySelector<T>(selector);
   if (!el) throw new Error(`Missing ${selector}`);
   return el;
 };
+
+const siteFooter = new SiteFooter($('#site-footer'));
 
 interface ActiveJog {
   button: HTMLButtonElement;
@@ -736,7 +737,7 @@ function renderSceneCopy() {
   const currentSpec = assembly.spec;
   const { gripper } = activeGripperState();
   const productName = currentSpec.name;
-  document.title = page === 'example' ? `${language === 'zh' ? '示例 01：装箱' : 'Example 01: Packing'} — UF Robots` : `${productName} — UF Robots`;
+  document.title = page === 'example' ? `${language === 'zh' ? '示例 01：装箱' : 'Example 01: Packing'} — UFACTORY Robot Viewer` : `${productName} — UFACTORY Robot Viewer`;
   $('#explore').setAttribute('aria-label', `${productName} interactive experience`);
   $('#stage-heading').textContent = productName;
   $('#telemetry-joints-range').textContent = `J1–J${currentSpec.dof} · °`;
@@ -831,6 +832,7 @@ function formatCollisionMessage(state: CollisionStatusState, lang: Language): st
 
 function translate() {
   document.documentElement.lang = language === 'zh' ? 'zh-CN' : 'en';
+  siteFooter.setLanguage(language);
   document.querySelectorAll<HTMLElement>('[data-t]').forEach(el => { el.textContent = copy[language][el.dataset.t as Key]; });
   $('#language-label').textContent = language === 'zh' ? 'EN' : '中文';
   $('#language').setAttribute('aria-label', language === 'zh' ? 'Switch to English' : '切换为中文');

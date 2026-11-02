@@ -87,6 +87,12 @@ test('Lite 6 finishes survive collision highlights and model switches without ch
     const original = assetFinishes(`public/models/lite6/meshes/lite6/visual_glb/${link}.glb`);
     expect(Object.keys(actual).sort()).toEqual(Object.keys(original).sort());
     for (const [part, asset] of Object.entries(original)) {
+      if (link === 'link6' && ['part_1', 'part_2'].includes(part)) {
+        expect(actual[part].metalness, `${link}/${part} metalness`).toBeCloseTo(0.8);
+        expect(actual[part].roughness, `${link}/${part} roughness`).toBeCloseTo(0.42);
+        expect(actual[part].color.every((channel, index) => channel < asset.color[index])).toBe(true);
+        continue;
+      }
       const expected = { ...asset };
       if (covers[link] === part) expected.color = [0.55, 0.55, 0.55];
       else if (link !== 'link6' && asset.color.every(channel => channel === 1)) expected.roughness = 0.3;

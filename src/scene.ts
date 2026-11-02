@@ -121,6 +121,70 @@ function adjustLite6Materials(robot: URDFRobot, ownedMaterials: Set<THREE.Materi
   }
 }
 
+/** Keep connector finishes local to this arm instance; GLB cache materials are shared. */
+function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMaterials: Set<THREE.Material>): void {
+  const parts: Record<string, { link: string; finishes: Record<string, { color: number; metalness: number; roughness: number; liteFace?: boolean }> }> = {
+    xarm5: { link: 'link5', finishes: {
+      part_0: { color: 0x191d20, metalness: 0.05, roughness: 0.7 },
+      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+    } },
+    xarm6: { link: 'link6', finishes: {
+      part_0: { color: 0x191d20, metalness: 0.05, roughness: 0.7 },
+      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+    } },
+    xarm7: { link: 'link7', finishes: {
+      part_0: { color: 0x191d20, metalness: 0.05, roughness: 0.7 },
+      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+    } },
+    lite6: { link: 'link6', finishes: {
+      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42, liteFace: true },
+      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+    } },
+  };
+  const target = parts[robotId];
+  if (!target) return;
+  const link = robot.links[target.link];
+  if (!link) return;
+  for (const visual of link.children) {
+    if (!(visual as THREE.Object3D & { isURDFVisual?: boolean }).isURDFVisual) continue;
+    visual.traverse(object => {
+      if (!(object instanceof THREE.Mesh)) return;
+      const finish = target.finishes[object.name];
+      if (!finish) return;
+      const copies = (Array.isArray(object.material) ? object.material : [object.material]).map(original => {
+        const material = original.clone();
+        ownedMaterials.add(material);
+        if (material instanceof THREE.MeshStandardMaterial) {
+          material.color.setHex(finish.color);
+          material.metalness = finish.metalness;
+          material.roughness = finish.roughness;
+          if (finish.liteFace) {
+            // The Lite 6 GLB combines the insert and shell in one mesh. The insert is
+            // the circular front face at local Y = 46 mm, centred at X/Z below.
+            material.onBeforeCompile = shader => {
+              shader.vertexShader = shader.vertexShader
+                .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
+                .replace('#include <begin_vertex>', '#include <begin_vertex>\nvConnectorPosition = position;');
+              shader.fragmentShader = shader.fragmentShader
+                .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
+                .replace('#include <color_fragment>', `#include <color_fragment>
+                  float connectorRadius = length(vConnectorPosition.xz - vec2(0.0000764, -0.008998));
+                  float connectorFace = step(0.0458, vConnectorPosition.y) * (1.0 - smoothstep(0.0038, 0.0044, connectorRadius));
+                  diffuseColor.rgb *= mix(1.0, 0.025, connectorFace);`);
+            };
+            material.customProgramCacheKey = () => 'lite6-connector-face-v1';
+          }
+        }
+        return material;
+      });
+      object.material = Array.isArray(object.material) ? copies : copies[0];
+    });
+  }
+}
+
 function createCoordinateFrame(axisLength: number, shaftRadius: number): THREE.Group {
   const frame = new THREE.Group();
   const headLength = axisLength * 0.22;
@@ -436,6 +500,7 @@ export class RobotScene {
         this.armTemplates.set(spec.id, structure);
       }
       if (spec.id === 'lite6') adjustLite6Materials(nextRobot, this.ownedArmMaterials);
+      adjustConnectorMaterials(nextRobot, spec.id, this.ownedArmMaterials);
 
       this.robot = nextRobot;
       this.armAssets = leases;
