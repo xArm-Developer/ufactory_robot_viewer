@@ -83,8 +83,8 @@ test('drag chain follows travel through initial load, interaction, and rail repl
   await expectTravelUpload(page, 350);
 
   for (const mm of [0, 175, 350, 525, 700]) {
-    await page.locator('#rail-range').fill(String(mm));
-    await page.locator('#rail-range').dispatchEvent('input');
+    await page.locator('#rail-number').fill(String(mm));
+    await page.locator('#rail-number').dispatchEvent('change');
     await expectTravelUpload(page, mm);
     await expect(page.locator('#stage-rail-pos')).toHaveText(mm.toFixed(1));
     expect(await page.locator('#fk-fields').innerText()).toBe(fk);
@@ -94,25 +94,23 @@ test('drag chain follows travel through initial load, interaction, and rail repl
   }
   expect((await captureState(page)).uploads.at(-1)?.kind).toBe('update');
 
-  // Drag the actual slider across the track and verify the final uploaded mesh.
-  const range = page.locator('#rail-range');
-  await range.fill('0');
-  await range.dispatchEvent('input');
+  // Hold the + button and verify the chain receives continuous travel updates.
+  await page.locator('#rail-number').fill('0');
+  await page.locator('#rail-number').dispatchEvent('change');
   await expectTravelUpload(page, 0);
-  await range.evaluate(element => {
-    const target = window as unknown as { railInputEvents: number };
-    target.railInputEvents = 0;
-    element.addEventListener('input', () => target.railInputEvents++);
-  });
-  const rangeBox = (await range.boundingBox())!;
-  await page.mouse.move(rangeBox.x + 7, rangeBox.y + rangeBox.height / 2);
+  await page.locator('#jog-speed').fill('100');
+  const uploadsBeforeHold = (await captureState(page)).uploads.length;
+  const plus = page.locator('#rail-plus');
+  await plus.scrollIntoViewIfNeeded();
+  const plusBox = (await plus.boundingBox())!;
+  await page.mouse.move(plusBox.x + plusBox.width / 2, plusBox.y + plusBox.height / 2);
   await page.mouse.down();
-  await page.mouse.move(rangeBox.x + rangeBox.width - 7, rangeBox.y + rangeBox.height / 2, { steps: 12 });
+  await page.waitForTimeout(800);
   await page.mouse.up();
-  const draggedMm = Number(await page.locator('#rail-number').inputValue());
-  expect(draggedMm).toBeGreaterThan(690);
-  expect(await page.evaluate(() => (window as unknown as { railInputEvents: number }).railInputEvents)).toBeGreaterThan(1);
-  await expectTravelUpload(page, draggedMm);
+  const heldMm = Number(await page.locator('#rail-number').inputValue());
+  expect(heldMm).toBeGreaterThan(20);
+  await expectTravelUpload(page, heldMm);
+  expect((await captureState(page)).uploads.length).toBeGreaterThan(uploadsBeforeHold + 1);
 
   // Inspect the side opposite the default camera, where the chain is attached.
   const canvas = page.locator('#canvas-area canvas');
@@ -128,8 +126,8 @@ test('drag chain follows travel through initial load, interaction, and rail repl
   await page.mouse.up();
   await page.waitForTimeout(800);
   for (const mm of [0, 350, 700]) {
-    await page.locator('#rail-range').fill(String(mm));
-    await page.locator('#rail-range').dispatchEvent('input');
+    await page.locator('#rail-number').fill(String(mm));
+    await page.locator('#rail-number').dispatchEvent('change');
     await expectTravelUpload(page, mm);
     await canvas.screenshot({ path: testInfo.outputPath(`chain-rear-${mm}.png`) });
   }

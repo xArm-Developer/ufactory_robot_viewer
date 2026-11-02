@@ -192,6 +192,100 @@ describe('public AL0700 & AI1500 GLB asset integrity & 3D geometry', () => {
     }
     expect(observed.size).toBe(3);
   });
+
+  it('keeps the AI1500 CAD structure and geometry while matching anodized aluminum flange materials across all 15 parts', () => {
+    const bytes = readFileSync('public/models/ai1500/model.glb');
+    const jsonLength = bytes.readUInt32LE(12);
+    const binHeader = 20 + jsonLength;
+    expect(bytes.toString('ascii', binHeader + 4, binHeader + 8)).toBe('BIN\0');
+    expect(createHash('sha256').update(bytes.subarray(binHeader + 8)).digest('hex'))
+      .toBe('d04549986d3cf50458c543d0d243163e1730321f143d5639d3f953455c5fa572');
+
+    type SensorGltf = {
+      nodes: { name?: string; mesh?: number }[];
+      meshes: { primitives: { material: number }[] }[];
+      materials: {
+        doubleSided?: boolean;
+        pbrMetallicRoughness: {
+          baseColorFactor: number[];
+          metallicFactor: number;
+          roughnessFactor: number;
+        };
+      }[];
+    };
+    const gltf = JSON.parse(bytes.toString('utf8', 20, binHeader)) as SensorGltf;
+    const { materials, ...structure } = gltf;
+    expect(createHash('sha256').update(JSON.stringify(structure)).digest('hex'))
+      .toBe('6fcd701978b279146061e7fd413d7fd420b65986be1bb9531f8dbaee52a74395');
+    expect(materials).toHaveLength(15);
+
+    const flangeBytes = readFileSync('public/models/xarm6/meshes/xarm6_1305/visual_glb/link6.glb');
+    const flangeGltf = JSON.parse(
+      flangeBytes.toString('utf8', 20, 20 + flangeBytes.readUInt32LE(12)),
+    ) as SensorGltf;
+    const armFlangePbr = flangeGltf.materials[4].pbrMetallicRoughness;
+
+    const silverAnodized = new Set([1, 2]);
+    const blackAnodized = new Set([10, 12, 14]);
+    const stainless = new Set([0, 3, 5, 7, 11, 13]);
+    const connector = new Set([4, 9]);
+    const finishes = {
+      silverAnodized: {
+        baseColorFactor: [0.952941, 0.952941, 0.94902, 1],
+        metallicFactor: 0.8,
+        roughnessFactor: 0.634245,
+      },
+      blackAnodized: {
+        baseColorFactor: [0.09, 0.094, 0.1, 1],
+        metallicFactor: 0.8,
+        roughnessFactor: 0.634245,
+      },
+      stainless: {
+        baseColorFactor: [0.96, 0.965, 0.97, 1],
+        metallicFactor: 0.78,
+        roughnessFactor: 0.48,
+      },
+      connector: {
+        baseColorFactor: [0.045, 0.048, 0.052, 1],
+        metallicFactor: 0.1,
+        roughnessFactor: 0.72,
+      },
+      contactGold: {
+        baseColorFactor: [0.83, 0.64, 0.24, 1],
+        metallicFactor: 0.8,
+        roughnessFactor: 0.38,
+      },
+    };
+
+    // Silver anodized sensor flanges must match the xArm 6 anodized aluminum flange PBR parameters.
+    finishes.silverAnodized.baseColorFactor.forEach((channel, idx) => {
+      expect(channel).toBeCloseTo(armFlangePbr.baseColorFactor[idx], 5);
+    });
+    expect(finishes.silverAnodized.metallicFactor).toBeCloseTo(armFlangePbr.metallicFactor, 5);
+    expect(finishes.silverAnodized.roughnessFactor).toBeCloseTo(armFlangePbr.roughnessFactor, 5);
+
+    const parts = gltf.nodes.filter(node => node.name?.startsWith('part_'));
+    expect(parts).toHaveLength(15);
+    const observed = new Set<string>();
+    for (const node of parts) {
+      const index = Number(node.name!.slice(5));
+      const materialIndex = gltf.meshes[node.mesh!].primitives[0].material;
+      expect(materials[materialIndex].doubleSided, node.name).toBe(true);
+      const actual = materials[materialIndex].pbrMetallicRoughness;
+      const expected = silverAnodized.has(index)
+        ? finishes.silverAnodized
+        : blackAnodized.has(index)
+          ? finishes.blackAnodized
+          : stainless.has(index)
+            ? finishes.stainless
+            : connector.has(index)
+              ? finishes.connector
+              : finishes.contactGold;
+      expect(actual, node.name).toEqual(expected);
+      observed.add(JSON.stringify(actual));
+    }
+    expect(observed.size).toBe(5);
+  });
 });
 
 describe.each(sensorRobots)('%s stacked F/T sensor + gripper TCP & IK', id => {

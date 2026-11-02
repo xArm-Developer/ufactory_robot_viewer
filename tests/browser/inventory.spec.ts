@@ -1,5 +1,5 @@
 import { expect, test, devices, type Page } from '@playwright/test';
-import { selectRobot } from './selection-panels';
+import { clearSavedScene, selectRobot } from './selection-panels';
 
 const products = [
   { id: 'xarm5', name: 'xArm 5', url: 'https://www.shop.ufactory.cc/products/xarm-5' },
@@ -59,6 +59,7 @@ test('inventory follows all robot selections and direct links in both languages'
   await popup.close();
 
   for (const product of products) {
+    await clearSavedScene(page);
     await page.goto(`/?model=${product.id}`);
     await expectReady(page, product.id);
     await expectProduct(page, product);

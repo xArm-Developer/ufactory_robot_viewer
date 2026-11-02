@@ -1,0 +1,10 @@
+{
+  "step": 0.002,
+  "gravity": 9.81,
+  "part": { "count": 9, "size": 0.03, "mass": 0.017, "spacing": 0.18, "initialY": 0.0 },
+  "belt": { "x": 0.4, "top": 0.04, "speed": 0.04 },
+  "box": { "center": [0.2, -0.32], "innerSize": 0.18, "wall": 0.008, "floorThickness": 0.012, "wallHeight": 0.08, "spacing": 0.045 },
+  "gripper": { "graspSite": 0.1613, "pregraspOpening": 0.04, "releaseOpening": 0.036, "closedOpening": 0.0276, "speed": 0.15, "gripConfirm": 0.05 },
+  "placement": { "releaseHeight": 0.062, "clearance": 0.005, "stableTime": 0.1, "timeout": 2.0 },
+  "limits": { "linearSpeed": 0.6, "linearAcceleration": 2.0, "linearJerk": 20.0, "jointSpeed": 1.5, "jointAcceleration": 4.0, "jointJerk": 40.0 }
+}

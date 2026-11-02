@@ -1,6 +1,6 @@
 import { devices, expect, test, type Page } from '@playwright/test';
 import fixtures from '../mujoco-lite6-tool-fk.json' with { type: 'json' };
-import { returnToAssembly, selectRobot, viewStandalone } from './selection-panels';
+import { clearSavedScene, jogJointTo, selectGripper, selectRobot } from './selection-panels';
 
 const gripper = 'lite6-gripper';
 const vacuum = 'lite6-vacuum-gripper';
@@ -10,7 +10,7 @@ async function ready(page: Page) {
 }
 
 async function selectTool(page: Page, id: string) {
-  await page.locator(`#tool-gripper-${id}`).check();
+  await selectGripper(page, id);
   await ready(page);
 }
 
@@ -20,15 +20,14 @@ test('Lite 6 shows its two tools, mounts them at the reference TCP, and clears i
   page.on('pageerror', error => errors.push(error.message));
   await page.goto('/?model=lite6');
   await ready(page);
-  for (const id of [gripper, vacuum]) await expect(page.locator(`#tool-gripper-${id}`)).toBeVisible();
-  for (const id of ['gripper-g2', 'bio-gripper-g2']) await expect(page.locator(`#tool-gripper-${id}`)).toBeHidden();
+  await expect(page.locator('#tool-gripper-select option')).toHaveText(['无夹爪', 'Gripper Lite', 'Vacuum Gripper Lite']);
   await expect(page.locator('#tool-sensor-check')).toBeDisabled();
   await expect(page.locator('#tool-sensor-group')).toBeHidden();
-  await expect(page.locator('[data-standalone-view="ai1500"]')).toBeHidden();
+  await expect(page.locator('[data-standalone-view]')).toHaveCount(0);
 
   await selectTool(page, gripper);
   await expect(page.locator('#stage')).toHaveAttribute('data-gripper', gripper);
-  await expect(page.locator('#tool-summary')).toHaveText('Gripper Lite');
+  await expect(page.locator('#tool-gripper-select')).toHaveValue(gripper);
   const toggle = page.getByRole('switch', { name: '夹爪开合' });
   await expect(toggle).toBeChecked();
   await expect(page.locator('#opening-switch-state')).toHaveText('张开');
@@ -56,8 +55,7 @@ test('Lite 6 shows its two tools, mounts them at the reference TCP, and clears i
   expect(new URL(page.url()).searchParams.get('opening')).toBe('100.0');
   expect(await page.locator('#fk-fields').innerText()).toBe(tcp);
   await page.locator('#joint-tab').click();
-  await page.locator('#joint-number-0').fill('20');
-  await page.locator('#joint-number-0').dispatchEvent('change');
+  await jogJointTo(page, 0, 20);
 
   await selectTool(page, vacuum);
   await expect(page.locator('#stage')).toHaveAttribute('data-gripper', vacuum);
@@ -65,16 +63,16 @@ test('Lite 6 shows its two tools, mounts them at the reference TCP, and clears i
   await expect(page.locator('#gripper-control')).toBeHidden();
   await expect(page.locator('#assets a').nth(1)).toHaveAttribute('href', /#_5-2-vacuum-gripper-lite/);
   expect(new URL(page.url()).searchParams.has('opening')).toBe(false);
+  const vacuumTcp = await page.locator('#fk-fields').innerText();
   await page.reload();
   await ready(page);
-  for (let i = 0; i < 3; i++) {
-    expect(Number(await page.locator(`#fk-${i}`).innerText())).toBeCloseTo(fixtures.tools.vacuum[0].position[i] * 1000, 1);
-  }
+  expect(await page.locator('#fk-fields').innerText()).toBe(vacuumTcp);
+  await expect(page.locator('#stage-joint-0')).toHaveText('20.00');
   await selectRobot(page, 'xarm6');
   await ready(page);
   await expect(page.locator('#stage')).not.toHaveAttribute('data-gripper');
-  await expect(page.locator(`#tool-gripper-${vacuum}`)).toBeHidden();
-  await expect(page.locator('#tool-gripper-gripper-g2')).toBeVisible();
+  await expect(page.locator('#tool-gripper-select option')).toHaveText(['无夹爪', 'Gripper G2', 'BIO Gripper G2']);
+  await expect(page.locator('#tool-gripper-select')).toHaveValue('');
   expect(new URL(page.url()).searchParams.has('gripper')).toBe(false);
   await selectTool(page, 'gripper-g2');
   await expect(page.locator('#opening-number')).toBeVisible();
@@ -83,66 +81,34 @@ test('Lite 6 shows its two tools, mounts them at the reference TCP, and clears i
   expect(errors).toEqual([]);
 });
 
-test('standalone views preserve the Lite 6 assembly and direct links validate tool compatibility', async ({ page }) => {
-  test.setTimeout(180_000);
-  await page.goto('/?model=lite6&gripper=lite6-gripper&opening=0');
-  await ready(page);
-  await viewStandalone(page, gripper);
-  await ready(page);
-  await expect(page.locator('#opening-switch')).not.toBeChecked();
-  await page.locator('#opening-switch').check();
-  await viewStandalone(page, vacuum);
-  await ready(page);
-  await expect(page.locator('#gripper-control')).toBeHidden();
-  expect(new URL(page.url()).searchParams.has('opening')).toBe(false);
-  await returnToAssembly(page);
-  await ready(page);
-  await expect(page.locator('#stage')).toHaveAttribute('data-gripper', gripper);
-  await expect(page.locator('#opening-switch')).not.toBeChecked();
-  expect(new URL(page.url()).searchParams.get('opening')).toBe('0.0');
-
-  for (const url of [
-    '/?model=lite6&gripper=lite6-gripper&opening=50',
-    '/?model=lite6-gripper&opening=30',
-  ]) {
-    await page.goto(url);
+test('legacy Lite tool links convert to assemblies and validate openings', async ({ page }) => {
+  for (const [id, opening, expected] of [
+    [gripper, '0', '0.0'], [gripper, '30', '100.0'], [vacuum, '42', null],
+  ] as const) {
+    await clearSavedScene(page);
+    await page.goto(`/?model=${id}&opening=${opening}&rail=al0700&railPos=300&sensor=ai1500&gripper=gripper-g2#controls`);
     await ready(page);
-    await expect(page.locator('#opening-switch')).toBeChecked();
-    expect(new URL(page.url()).searchParams.get('opening')).toBe('100.0');
-  }
-  await page.goto('/?model=lite6-gripper&opening=0');
-  await ready(page);
-  await expect(page.locator('#opening-switch')).not.toBeChecked();
-  await page.reload();
-  await ready(page);
-  await expect(page.locator('#opening-switch')).not.toBeChecked();
-
-  for (const url of [
-    '/?model=lite6&gripper=gripper-g2&opening=42',
-    '/?model=xarm6&gripper=lite6-gripper&opening=42',
-  ]) {
-    await page.goto(url);
-    await ready(page);
-    expect(new URL(page.url()).searchParams.has('gripper')).toBe(false);
-    expect(new URL(page.url()).searchParams.has('opening')).toBe(false);
-  }
-  await page.goto('/?model=lite6&gripper=lite6-vacuum-gripper&opening=42');
-  await ready(page);
-  expect(new URL(page.url()).searchParams.get('gripper')).toBe(vacuum);
-  expect(new URL(page.url()).searchParams.has('opening')).toBe(false);
-  await expect(page.locator('#gripper-control')).toBeHidden();
-
-  for (const id of [gripper, vacuum]) {
-    await page.goto(`/?model=${id}`);
-    await ready(page);
-    await expect(page.locator('#stage')).toHaveAttribute('data-mode', 'gripper');
+    await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'lite6');
     await expect(page.locator('#stage')).toHaveAttribute('data-gripper', id);
-    if (id === gripper) await expect(page.locator('#opening-switch')).toBeChecked();
+    const url = new URL(page.url());
+    expect(url.searchParams.get('model')).toBe('lite6');
+    expect(url.searchParams.get('gripper')).toBe(id);
+    expect(url.searchParams.get('opening')).toBe(expected);
+    expect(url.searchParams.has('rail')).toBe(false);
+    expect(url.searchParams.has('railPos')).toBe(false);
+    expect(url.searchParams.has('sensor')).toBe(false);
+    expect(url.hash).toBe('#controls');
+    if (id === gripper) await expect(page.locator('#opening-switch')).toHaveJSProperty('checked', expected === '100.0');
     else await expect(page.locator('#gripper-control')).toBeHidden();
-    await returnToAssembly(page);
+    await page.reload();
     await ready(page);
-    await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'xarm6');
+    await expect(page.locator('#stage')).toHaveAttribute('data-gripper', id);
   }
+  await clearSavedScene(page);
+  await page.goto('/?model=lite6&gripper=gripper-g2&opening=42');
+  await ready(page);
+  expect(new URL(page.url()).searchParams.has('gripper')).toBe(false);
+  expect(new URL(page.url()).searchParams.has('opening')).toBe(false);
 });
 
 test('switching tools discards an unfinished Lite finger load', async ({ page }) => {
@@ -161,14 +127,17 @@ test('switching tools discards an unfinished Lite finger load', async ({ page })
   });
   await page.goto('/?model=lite6');
   await ready(page);
-  await page.locator(`#tool-gripper-${gripper}`).check();
+  await selectGripper(page, gripper);
   await intercepted;
+  await expect(page.locator('#tool-gripper-select')).toHaveValue(gripper);
+  await expect(page.locator('#tool-gripper-select')).toBeEnabled();
   await expect(page.locator('#opening-switch')).toBeDisabled();
   await selectTool(page, vacuum);
   release();
   await abortedRequest;
   await page.waitForTimeout(200);
   await expect(page.locator('#stage')).toHaveAttribute('data-gripper', vacuum);
+  await expect(page.locator('#tool-gripper-select')).toHaveValue(vacuum);
   await expect(page.locator('#load-message')).toBeHidden();
   await expect(page.locator('#assets a')).toHaveCount(2);
 });
@@ -185,6 +154,8 @@ test('Lite finger loading failure is retryable and mobile English controls remai
   await ready(page);
   expect(attempts).toBe(2);
   await page.locator('#language').click();
+  await expect(page.getByRole('combobox', { name: 'End effector' })).toHaveValue(gripper);
+  await expect(page.locator('#tool-gripper-select option')).toHaveText(['No gripper', 'Gripper Lite', 'Vacuum Gripper Lite']);
   const toggle = page.getByRole('switch', { name: 'Gripper opening' });
   await expect(toggle).toBeChecked();
   await expect(page.locator('#opening-switch-state')).toHaveText('Open');
@@ -201,49 +172,26 @@ test('Lite finger loading failure is retryable and mobile English controls remai
   await context.close();
 });
 
-test('sensor options follow arm compatibility through links, standalone views, and arm changes', async ({ page }) => {
-  test.setTimeout(180_000);
-  const sensorGroup = page.locator('#tool-sensor-group');
-  const sensorCheck = page.locator('#tool-sensor-check');
-  const sensorView = page.locator('[data-standalone-view="ai1500"]');
-
+test('sensor options follow arm compatibility through links and arm changes', async ({ page }) => {
   await page.goto('/?model=lite6&sensor=ai1500');
   await ready(page);
-  await expect(sensorGroup).toBeHidden();
-  await expect(sensorView).toBeHidden();
-  await expect(page.getByRole('checkbox', { name: '六维力矩传感器' })).toHaveCount(0);
-  await expect(page.getByRole('button', { name: '六维力矩传感器' })).toHaveCount(0);
-  await expect(page.locator('#tool-menu .tool-group').nth(1)).toHaveCSS('border-top-width', '0px');
+  await expect(page.locator('#tool-sensor-group')).toBeHidden();
+  await expect(page.locator('[data-standalone-view]')).toHaveCount(0);
   expect(new URL(page.url()).searchParams.has('sensor')).toBe(false);
-
-  await viewStandalone(page, gripper);
-  await ready(page);
-  await expect(sensorGroup).toBeHidden();
-  await expect(sensorView).toBeHidden();
-  await expect(page.locator('#tool-dropdown')).toHaveAccessibleDescription(/独立查看/);
-  await returnToAssembly(page);
-  await ready(page);
-  await expect(sensorGroup).toBeHidden();
-
   for (const id of ['xarm5', 'xarm6', 'xarm7', 'uf850']) {
     await selectRobot(page, id);
     await ready(page);
-    await expect(sensorGroup).toBeVisible();
-    await expect(sensorCheck).toBeEnabled();
-    await expect(sensorView).toBeVisible();
+    await expect(page.locator('#tool-sensor-group')).toBeVisible();
+    await expect(page.locator('#tool-sensor-check')).toBeEnabled();
   }
-  await sensorCheck.check();
+  await page.locator('#tool-sensor-check').check();
   await ready(page);
   await expect(page.locator('#stage')).toHaveAttribute('data-sensor', 'ai1500');
   await selectRobot(page, 'lite6');
   await ready(page);
-  await expect(sensorGroup).toBeHidden();
-  await expect(sensorView).toBeHidden();
+  await expect(page.locator('#tool-sensor-group')).toBeHidden();
   await expect(page.locator('#stage')).not.toHaveAttribute('data-sensor');
-  expect(new URL(page.url()).searchParams.has('sensor')).toBe(false);
   await selectRobot(page, 'xarm6');
   await ready(page);
-  await expect(sensorGroup).toBeVisible();
-  await expect(sensorCheck).not.toBeChecked();
-  await expect(sensorView).toBeVisible();
+  await expect(page.locator('#tool-sensor-check')).not.toBeChecked();
 });

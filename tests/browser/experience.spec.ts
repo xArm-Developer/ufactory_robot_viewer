@@ -1,6 +1,6 @@
 import { test, expect, devices } from '@playwright/test';
 import { readFileSync } from 'node:fs';
-import { selectRobot } from './selection-panels';
+import { clearSavedScene, jogJointTo, selectRobot } from './selection-panels';
 
 interface FixtureSample { joints: number[]; position: number[] }
 const fixtures = JSON.parse(readFileSync('tests/mujoco-fk.json', 'utf8')) as {
@@ -81,16 +81,14 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   await expect(page.locator('#joint-panel')).toBeVisible();
   await expect(page.locator('#pose-panel')).toBeHidden();
   for (let i = 0; i < 6; i++) {
-    await expect(page.locator(`#joint-number-${i}`)).toHaveValue('0.00');
+    await expect(page.locator(`#joint-angle-${i}`)).toHaveText('0.00°');
   }
-  await page.locator('#joint-number-0').fill('20');
-  await page.locator('#joint-number-0').dispatchEvent('change');
-  await expect(page.locator('#joint-number-0')).toHaveValue('20.00');
+  await jogJointTo(page, 0, 20);
+  await expect(page.locator('#joint-angle-0')).toHaveText('20.00°');
   await expect(page.locator('#stage-joint-0')).toHaveText('20.00');
   expect(Math.abs(Number(await page.locator('#fk-1').innerText()))).toBeGreaterThan(10);
 
-  await page.locator('#joint-number-0').fill('0');
-  await page.locator('#joint-number-0').dispatchEvent('change');
+  await jogJointTo(page, 0, 0);
   await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
   await expect(page.locator('#fk-1')).toHaveText('0.00');
 
@@ -99,15 +97,15 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
 
   // Jog uses fixed default steps while speed remains adjustable.
   await expect(page.locator('#pos-step, #rot-step, #control-title, .pose-heading, .cartesian-description')).toHaveCount(0);
-  await expect(page.locator('#jog-speed')).toHaveValue('20');
-  await expect(page.locator('#jog-speed-readout')).toHaveText('20%');
+  await expect(page.locator('#jog-speed')).toHaveValue('50');
+  await expect(page.locator('#jog-speed-readout')).toHaveText('50%');
 
   const homeX = Number(await page.locator('#fk-0').innerText());
   const homeY = Number(await page.locator('#fk-1').innerText());
   const homeYaw = Number(await page.locator('#fk-5').innerText());
 
   await page.locator('[data-jog-axis="x"][data-jog-dir="1"]').click();
-  await expect(page.locator('#status-text')).toHaveText('Target solved');
+  await expect(page.locator('#status-text')).toBeEmpty();
   expect(Number(await page.locator('#fk-0').innerText()) - homeX).toBeCloseTo(1, 1);
 
   await page.locator('[data-jog-axis="yaw"][data-jog-dir="1"]').click();
@@ -150,7 +148,11 @@ test('desktop all-zero initial pose, 3D stage live telemetry, RGB coordinate fra
   expect((await page.locator('#stage').boundingBox())!.width).toBeGreaterThan(700);
   const stageBox = (await page.locator('#stage').boundingBox())!;
   const modelsBox = (await page.locator('#robot-models').boundingBox())!;
-  expect(modelsBox.y + modelsBox.height).toBeLessThanOrEqual(stageBox.y);
+  const telemetryBox = (await page.locator('#stage-telemetry').boundingBox())!;
+  expect(modelsBox.x).toBeGreaterThan(stageBox.x);
+  expect(modelsBox.y).toBeGreaterThan(stageBox.y);
+  expect(modelsBox.y).toBeLessThan(stageBox.y + 60);
+  expect(modelsBox.x + modelsBox.width).toBeLessThan(telemetryBox.x);
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
   expect(errors).toEqual([]);
 });
@@ -164,7 +166,7 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   page.on('pageerror', error => errors.push(error.message));
 
   await ready(page);
-  await expect(page.locator('#robot-select option:not([value="standalone"])')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
+  await expect(page.locator('#robot-select option')).toHaveText(['xArm 5', 'xArm 6', 'xArm 7', '850', 'Lite 6']);
   await page.locator('#toggle-tcp-frame').click();
   await expect(page.locator('#toggle-tcp-frame')).toHaveAttribute('aria-pressed', 'true');
 
@@ -212,8 +214,7 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   await expect(rollMinus).toBeEnabled();
 
   await page.locator('#joint-tab').click();
-  await page.locator('#joint-number-6').fill('25');
-  await page.locator('#joint-number-6').dispatchEvent('change');
+  await jogJointTo(page, 6, 25);
   await expect(page.locator('#stage-joint-6')).toHaveText('25.00');
   await page.locator('#cartesian-tab').click();
   const xarm7Z = Number(await page.locator('#fk-2').innerText());
@@ -231,11 +232,12 @@ test('multi-model switching across xArm 5, xArm 7, 850, and Lite 6 with xArm 5 g
   expect(Number(await page.locator('#fk-0').innerText())).toBeCloseTo(fixtures.robots.uf850.samples[0].position[0] * 1000, 1);
 
   await rollMinus.click();
-  await expect(page.locator('#status-text')).toHaveText('目标已求解');
+  await expect(page.locator('#status-text')).toBeEmpty();
   expect(Math.abs(Number(await page.locator('#fk-3').innerText()))).toBeCloseTo(179, 1);
 
   // 4. Direct URL load of Lite 6 (?model=lite6, 7 GLBs)
   loadedGlbs.length = 0;
+  await clearSavedScene(page);
   await ready(page, '/?model=lite6');
   await expect(page.locator('#stage')).toHaveAttribute('data-robot', 'lite6');
   expect(loadedGlbs).toHaveLength(7);
@@ -313,18 +315,16 @@ test('touch-size layout loads with model switcher, 7-joint telemetry, coordinate
   expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
 
   await page.locator('#joint-tab').click();
-  await page.locator('#joint-number-0').fill('15');
-  await page.locator('#joint-number-0').dispatchEvent('change');
-  await expect(page.locator('#joint-number-0')).toHaveValue('15.00');
+  await jogJointTo(page, 0, 15);
+  await expect(page.locator('#joint-angle-0')).toHaveText('15.00°');
   await expect(page.locator('#stage-joint-0')).toHaveText('15.00');
-  await page.locator('#joint-number-0').fill('0');
-  await page.locator('#joint-number-0').dispatchEvent('change');
+  await jogJointTo(page, 0, 0);
   await expect(page.locator('#stage-joint-0')).toHaveText('0.00');
 
   await page.locator('#cartesian-tab').click();
   const beforeZ = Number(await page.locator('#fk-2').innerText());
   await page.locator('[data-jog-axis="z"][data-jog-dir="1"]').click();
-  await expect(page.locator('#status-text')).toHaveText('目标已求解');
+  await expect(page.locator('#status-text')).toBeEmpty();
   expect(Number(await page.locator('#fk-2').innerText()) - beforeZ).toBeCloseTo(1, 1);
 
   await page.locator('#view-reset').click();

@@ -107,10 +107,16 @@ export function stepBasePose(pose: Pose, axis: CartesianAxis, delta: number): Po
   };
 }
 
-/** Map 1%–100% slider to 2.5–250 mm/s linear and 1–100 °/s angular speed. */
+/** Map 1%–100% slider to 2.5–250 mm/s linear and 1–40 °/s angular speed. */
 export function jogVelocity(percent: number): { linearMmPerSec: number; angularDegPerSec: number } {
   const clamped = MathUtils.clamp(Math.round(percent), 1, 100);
-  return { linearMmPerSec: clamped * 2.5, angularDegPerSec: clamped };
+  return { linearMmPerSec: clamped * 2.5, angularDegPerSec: 1 + (clamped - 1) * 39 / 99 };
+}
+
+/** Map 1%–100% linearly to 1–45 degrees per second. */
+export function jointVelocity(percent: number): number {
+  const clamped = MathUtils.clamp(Math.round(percent), 1, 100);
+  return 1 + (clamped - 1) * 44 / 99;
 }
 
 export class IKSolver {

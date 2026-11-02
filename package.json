@@ -1,6 +1,6 @@
 {
   "name": "uf-robots",
-  "version": "0.0.3",
+  "version": "0.0.4",
   "private": true,
   "type": "module",
   "engines": {
@@ -16,6 +16,7 @@
     "postinstall": "node scripts/copy-draco.mjs"
   },
   "dependencies": {
+    "@mujoco/mujoco": "3.15.0",
     "closed-chain-ik": "https://github.com/gkjohnson/closed-chain-ik-js/archive/e966801426aba9873e3a853709c53cf12358d8ea.tar.gz",
     "three": "0.186.1",
     "urdf-loader": "0.13.1"

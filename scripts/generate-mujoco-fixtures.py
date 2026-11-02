@@ -1,6 +1,6 @@
 """Generate independent FK fixtures with MuJoCo for all 5 vendored UFACTORY URDFs.
 
-Run with /opt/conda_envs/py314/bin/python scripts/generate-mujoco-fixtures.py.
+Run with python scripts/generate-mujoco-fixtures.py.
 Visual/collision geometry is removed solely because FK does not need meshes.
 """
 import json

@@ -14,8 +14,6 @@ export interface RobotSpec {
   disabledJogAxes?: readonly CartesianAxis[];
   cameraPosition: [number, number, number];
   cameraTarget: [number, number, number];
-  variantLabel: { zh: string; en: string };
-  jointIntro: { zh: string; en: string };
 }
 
 export const DEFAULT_ROBOT_ID: RobotId = 'xarm6';
@@ -41,11 +39,6 @@ export const ROBOTS: readonly RobotSpec[] = [
     disabledJogAxes: ['roll'],
     cameraPosition: [0.93, -1.2, 0.95],
     cameraTarget: [0, 0, 0.36],
-    variantLabel: { zh: '1305 版本 · 5 轴交互式模型', en: '1305 VARIANT · 5-AXIS INTERACTIVE MODEL' },
-    jointIntro: {
-      zh: '调整五个关节，实时更新 3D 模型与舞台位姿读数。',
-      en: 'Adjust the five joints to update the 3D arm and live stage telemetry.',
-    },
   },
   {
     id: 'xarm6',
@@ -58,11 +51,6 @@ export const ROBOTS: readonly RobotSpec[] = [
     visualMeshCount: 7,
     cameraPosition: [0.93, -1.2, 0.95],
     cameraTarget: [0, 0, 0.38],
-    variantLabel: { zh: '1305 版本 · 6 轴交互式模型', en: '1305 VARIANT · 6-AXIS INTERACTIVE MODEL' },
-    jointIntro: {
-      zh: '调整六个关节，实时更新 3D 模型与舞台位姿读数。',
-      en: 'Adjust the six joints to update the 3D arm and live stage telemetry.',
-    },
   },
   {
     id: 'xarm7',
@@ -75,11 +63,6 @@ export const ROBOTS: readonly RobotSpec[] = [
     visualMeshCount: 8,
     cameraPosition: [0.95, -1.22, 0.96],
     cameraTarget: [0, 0, 0.38],
-    variantLabel: { zh: '1305 版本 · 7 轴交互式模型', en: '1305 VARIANT · 7-AXIS INTERACTIVE MODEL' },
-    jointIntro: {
-      zh: '调整七个关节，实时更新 3D 模型与舞台位姿读数。',
-      en: 'Adjust the seven joints to update the 3D arm and live stage telemetry.',
-    },
   },
   {
     id: 'uf850',
@@ -92,11 +75,6 @@ export const ROBOTS: readonly RobotSpec[] = [
     visualMeshCount: 7,
     cameraPosition: [1.14, -1.48, 1.16],
     cameraTarget: [0, 0, 0.46],
-    variantLabel: { zh: '6 轴长臂展 · 交互式模型', en: '6-AXIS EXTENDED REACH · INTERACTIVE MODEL' },
-    jointIntro: {
-      zh: '调整六个关节，实时更新 3D 模型与舞台位姿读数。',
-      en: 'Adjust the six joints to update the 3D arm and live stage telemetry.',
-    },
   },
   {
     id: 'lite6',
@@ -109,11 +87,6 @@ export const ROBOTS: readonly RobotSpec[] = [
     visualMeshCount: 7,
     cameraPosition: [0.76, -0.98, 0.78],
     cameraTarget: [0, 0, 0.28],
-    variantLabel: { zh: '轻量桌面级 · 6 轴交互式模型', en: 'COMPACT DESKTOP · 6-AXIS INTERACTIVE MODEL' },
-    jointIntro: {
-      zh: '调整六个关节，实时更新 3D 模型与舞台位姿读数。',
-      en: 'Adjust the six joints to update the 3D arm and live stage telemetry.',
-    },
   },
 ] as const;
 

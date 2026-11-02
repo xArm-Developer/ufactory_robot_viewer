@@ -1,0 +1,1112 @@
+{
+  "mujocoVersion": "3.15.0",
+  "penetrationThresholdMm": -0.2,
+  "arms": {
+    "xarm5": [
+      {
+        "label": "home_zero",
+        "joints": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "collides": false,
+        "minDistMm": 38.719,
+        "pairs": []
+      },
+      {
+        "label": "wrist_into_link1_safe",
+        "joints": [
+          0.232253,
+          -0.319348,
+          0.046451,
+          1.521258,
+          0.290316
+        ],
+        "collides": false,
+        "minDistMm": 2.486,
+        "pairs": []
+      },
+      {
+        "label": "wrist_into_link1_colliding",
+        "joints": [
+          0.243661,
+          -0.335035,
+          0.048732,
+          1.595983,
+          0.304577
+        ],
+        "collides": true,
+        "minDistMm": -2.286,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link5"
+          ]
+        ]
+      },
+      {
+        "label": "forearm_into_base_safe",
+        "joints": [
+          0.074276,
+          0.74276,
+          -0.230256,
+          0.668484,
+          0.111414
+        ],
+        "collides": false,
+        "minDistMm": 2.478,
+        "pairs": []
+      },
+      {
+        "label": "forearm_into_base_colliding",
+        "joints": [
+          0.076783,
+          0.767831,
+          -0.238028,
+          0.691048,
+          0.115175
+        ],
+        "collides": true,
+        "minDistMm": -2.879,
+        "pairs": [
+          [
+            "arm:link5",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "rotated_wrist_into_base_safe",
+        "joints": [
+          -0.509267,
+          -0.106097,
+          0.067902,
+          1.103412,
+          -0.339512
+        ],
+        "collides": false,
+        "minDistMm": 2.014,
+        "pairs": []
+      },
+      {
+        "label": "rotated_wrist_into_base_colliding",
+        "joints": [
+          -0.530295,
+          -0.110478,
+          0.070706,
+          1.148973,
+          -0.35353
+        ],
+        "collides": true,
+        "minDistMm": -2.392,
+        "pairs": [
+          [
+            "arm:link5",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "twisted_forearm_into_base_safe",
+        "joints": [
+          0.483126,
+          0.843274,
+          -0.276699,
+          0.518262,
+          0.395285
+        ],
+        "collides": false,
+        "minDistMm": 2.924,
+        "pairs": []
+      },
+      {
+        "label": "twisted_forearm_into_base_colliding",
+        "joints": [
+          0.500657,
+          0.873874,
+          -0.28674,
+          0.537068,
+          0.409628
+        ],
+        "collides": true,
+        "minDistMm": -2.239,
+        "pairs": [
+          [
+            "arm:link5",
+            "arm:link_base"
+          ]
+        ]
+      }
+    ],
+    "xarm6": [
+      {
+        "label": "home_zero",
+        "joints": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "collides": false,
+        "minDistMm": 38.755,
+        "pairs": []
+      },
+      {
+        "label": "link4_into_base_safe",
+        "joints": [
+          -0.16537,
+          0.621791,
+          -0.049611,
+          -0.079378,
+          -0.033074,
+          0.132296
+        ],
+        "collides": false,
+        "minDistMm": 2.425,
+        "pairs": []
+      },
+      {
+        "label": "link4_into_base_colliding",
+        "joints": [
+          -0.197955,
+          0.74431,
+          -0.059386,
+          -0.095018,
+          -0.039591,
+          0.158364
+        ],
+        "collides": true,
+        "minDistMm": -11.405,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link5"
+          ],
+          [
+            "arm:link4",
+            "arm:link_base"
+          ],
+          [
+            "arm:link5",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "wrist_into_link1_link2_safe",
+        "joints": [
+          0.089698,
+          -0.239196,
+          0.02691,
+          0.711608,
+          -0.047839,
+          0.074749
+        ],
+        "collides": false,
+        "minDistMm": 2.155,
+        "pairs": []
+      },
+      {
+        "label": "wrist_into_link1_link2_colliding",
+        "joints": [
+          0.098947,
+          -0.263858,
+          0.029684,
+          0.784979,
+          -0.052772,
+          0.082456
+        ],
+        "collides": true,
+        "minDistMm": -2.064,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link4"
+          ]
+        ]
+      },
+      {
+        "label": "folded_wrist_into_link1_safe",
+        "joints": [
+          0.14953,
+          0.252706,
+          0.016448,
+          0.56672,
+          0.309528,
+          -0.089718
+        ],
+        "collides": false,
+        "minDistMm": 2.39,
+        "pairs": []
+      },
+      {
+        "label": "folded_wrist_into_link1_colliding",
+        "joints": [
+          0.162302,
+          0.27429,
+          0.017853,
+          0.615124,
+          0.335965,
+          -0.097381
+        ],
+        "collides": true,
+        "minDistMm": -2.137,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link4"
+          ]
+        ]
+      },
+      {
+        "label": "rotated_link4_into_base_safe",
+        "joints": [
+          0.450769,
+          0.981676,
+          -0.360615,
+          1.362325,
+          0.24041,
+          -0.500855
+        ],
+        "collides": false,
+        "minDistMm": 2.065,
+        "pairs": []
+      },
+      {
+        "label": "rotated_link4_into_base_colliding",
+        "joints": [
+          0.469798,
+          1.023116,
+          -0.375839,
+          1.419835,
+          0.250559,
+          -0.521998
+        ],
+        "collides": true,
+        "minDistMm": -2.071,
+        "pairs": [
+          [
+            "arm:link4",
+            "arm:link_base"
+          ]
+        ]
+      }
+    ],
+    "xarm7": [
+      {
+        "label": "home_zero",
+        "joints": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "collides": false,
+        "minDistMm": 38.707,
+        "pairs": []
+      },
+      {
+        "label": "wrist_into_base_safe",
+        "joints": [
+          -0.405307,
+          -1.351022,
+          -2.289982,
+          0.236429,
+          1.506389,
+          -0.743062,
+          0.067551
+        ],
+        "collides": false,
+        "minDistMm": 3.139,
+        "pairs": []
+      },
+      {
+        "label": "wrist_into_base_colliding",
+        "joints": [
+          -0.409755,
+          -1.36585,
+          -2.315115,
+          0.239024,
+          1.522922,
+          -0.751217,
+          0.068292
+        ],
+        "collides": true,
+        "minDistMm": -3.516,
+        "pairs": [
+          [
+            "arm:link7",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "elbow_wrist_into_link2_safe",
+        "joints": [
+          0.108409,
+          -0.134428,
+          -1.023385,
+          -0.004336,
+          0.75453,
+          0.147437,
+          0.086728
+        ],
+        "collides": false,
+        "minDistMm": 2.252,
+        "pairs": []
+      },
+      {
+        "label": "elbow_wrist_into_link2_colliding",
+        "joints": [
+          0.119372,
+          -0.148021,
+          -1.12687,
+          -0.004775,
+          0.830828,
+          0.162346,
+          0.095497
+        ],
+        "collides": true,
+        "minDistMm": -2.261,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link5"
+          ]
+        ]
+      },
+      {
+        "label": "twisted_wrist_into_link1_link2_safe",
+        "joints": [
+          -0.306218,
+          -0.543537,
+          -1.848792,
+          -0.038277,
+          -2.135872,
+          -0.325357,
+          -0.191386
+        ],
+        "collides": false,
+        "minDistMm": 2.156,
+        "pairs": []
+      },
+      {
+        "label": "twisted_wrist_into_link1_link2_colliding",
+        "joints": [
+          -0.317209,
+          -0.563045,
+          -1.915147,
+          -0.039651,
+          -2.21253,
+          -0.337034,
+          -0.198255
+        ],
+        "collides": true,
+        "minDistMm": -2.004,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link6"
+          ]
+        ]
+      },
+      {
+        "label": "rotated_wrist_into_base_safe",
+        "joints": [
+          0.80546,
+          -1.302161,
+          -2.188167,
+          0.268487,
+          2.335834,
+          -0.489988,
+          0.536973
+        ],
+        "collides": false,
+        "minDistMm": 2.321,
+        "pairs": []
+      },
+      {
+        "label": "rotated_wrist_into_base_colliding",
+        "joints": [
+          0.822879,
+          -1.330321,
+          -2.235489,
+          0.274293,
+          2.38635,
+          -0.500585,
+          0.548586
+        ],
+        "collides": true,
+        "minDistMm": -3.068,
+        "pairs": [
+          [
+            "arm:link6",
+            "arm:link_base"
+          ],
+          [
+            "arm:link7",
+            "arm:link_base"
+          ]
+        ]
+      }
+    ],
+    "uf850": [
+      {
+        "label": "home_zero",
+        "joints": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "collides": false,
+        "minDistMm": 24.487,
+        "pairs": []
+      },
+      {
+        "label": "link5_into_base_safe",
+        "joints": [
+          0.239085,
+          -1.458417,
+          -0.518017,
+          -4.486823,
+          1.466386,
+          -0.398474
+        ],
+        "collides": false,
+        "minDistMm": 2.593,
+        "pairs": []
+      },
+      {
+        "label": "link5_into_base_colliding",
+        "joints": [
+          0.242012,
+          -1.476273,
+          -0.524359,
+          -4.541757,
+          1.48434,
+          -0.403353
+        ],
+        "collides": true,
+        "minDistMm": -2.303,
+        "pairs": [
+          [
+            "arm:link5",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "link4_into_link1_base_safe",
+        "joints": [
+          -0.234549,
+          -0.507213,
+          -0.073297,
+          -0.378211,
+          -0.252141,
+          -0.029319
+        ],
+        "collides": false,
+        "minDistMm": 2.1,
+        "pairs": []
+      },
+      {
+        "label": "link4_into_link1_base_colliding",
+        "joints": [
+          -0.257146,
+          -0.556078,
+          -0.080358,
+          -0.414648,
+          -0.276432,
+          -0.032143
+        ],
+        "collides": true,
+        "minDistMm": -2.47,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link6"
+          ]
+        ]
+      },
+      {
+        "label": "folded_wrist_into_upper_arm_safe",
+        "joints": [
+          0.134175,
+          -0.26686,
+          0.007454,
+          0.709638,
+          -0.138648,
+          0.104359
+        ],
+        "collides": false,
+        "minDistMm": 2.056,
+        "pairs": []
+      },
+      {
+        "label": "folded_wrist_into_upper_arm_colliding",
+        "joints": [
+          0.14901,
+          -0.296365,
+          0.008278,
+          0.788098,
+          -0.153977,
+          0.115897
+        ],
+        "collides": true,
+        "minDistMm": -2.197,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link6"
+          ]
+        ]
+      },
+      {
+        "label": "rotated_link4_into_base_safe",
+        "joints": [
+          -0.226716,
+          -0.449311,
+          -0.051526,
+          -0.133969,
+          -0.171068,
+          0.247327
+        ],
+        "collides": false,
+        "minDistMm": 2.625,
+        "pairs": []
+      },
+      {
+        "label": "rotated_link4_into_base_colliding",
+        "joints": [
+          -0.249661,
+          -0.494784,
+          -0.056741,
+          -0.147527,
+          -0.188381,
+          0.272358
+        ],
+        "collides": true,
+        "minDistMm": -2.325,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link6"
+          ]
+        ]
+      }
+    ],
+    "lite6": [
+      {
+        "label": "home_zero",
+        "joints": [
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0,
+          0.0
+        ],
+        "collides": false,
+        "minDistMm": 6.197,
+        "pairs": []
+      },
+      {
+        "label": "link4_into_link1_safe",
+        "joints": [
+          0.179245,
+          -0.249489,
+          0.024222,
+          -0.193778,
+          -0.300356,
+          -0.266445
+        ],
+        "collides": false,
+        "minDistMm": 2.019,
+        "pairs": []
+      },
+      {
+        "label": "link4_into_link1_colliding",
+        "joints": [
+          0.309124,
+          -0.430268,
+          0.041774,
+          -0.334189,
+          -0.517992,
+          -0.459509
+        ],
+        "collides": true,
+        "minDistMm": -2.026,
+        "pairs": [
+          [
+            "arm:link1",
+            "arm:link4"
+          ]
+        ]
+      },
+      {
+        "label": "link4_into_base_safe",
+        "joints": [
+          0.403756,
+          1.648672,
+          1.117059,
+          -1.096871,
+          -0.087481,
+          -0.538342
+        ],
+        "collides": false,
+        "minDistMm": 2.569,
+        "pairs": []
+      },
+      {
+        "label": "link4_into_base_colliding",
+        "joints": [
+          0.414151,
+          1.691118,
+          1.145819,
+          -1.125111,
+          -0.089733,
+          -0.552202
+        ],
+        "collides": true,
+        "minDistMm": -2.151,
+        "pairs": [
+          [
+            "arm:link4",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "wrist_cluster_into_base_safe",
+        "joints": [
+          -0.588884,
+          0.981473,
+          0.405676,
+          -0.405676,
+          -0.366417,
+          0.654316
+        ],
+        "collides": false,
+        "minDistMm": 2.18,
+        "pairs": []
+      },
+      {
+        "label": "wrist_cluster_into_base_colliding",
+        "joints": [
+          -0.644299,
+          1.073832,
+          0.44385,
+          -0.44385,
+          -0.400897,
+          0.715888
+        ],
+        "collides": true,
+        "minDistMm": -2.275,
+        "pairs": [
+          [
+            "arm:link6",
+            "arm:link_base"
+          ]
+        ]
+      },
+      {
+        "label": "forearm_into_base_safe",
+        "joints": [
+          0.371351,
+          -1.996014,
+          3.490703,
+          -0.445622,
+          -1.364716,
+          0.092838
+        ],
+        "collides": false,
+        "minDistMm": 2.736,
+        "pairs": []
+      },
+      {
+        "label": "forearm_into_base_colliding",
+        "joints": [
+          0.376643,
+          -2.024457,
+          3.540445,
+          -0.451972,
+          -1.384163,
+          0.094161
+        ],
+        "collides": true,
+        "minDistMm": -2.452,
+        "pairs": [
+          [
+            "arm:link3",
+            "arm:link_base"
+          ]
+        ]
+      }
+    ]
+  },
+  "combinations": [
+    {
+      "label": "xarm5_bio_home",
+      "joints": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "collides": false,
+      "minDistMm": 22.651,
+      "pairs": [],
+      "robotId": "xarm5",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm5_bio_g2_safe",
+      "joints": [
+        -4.082342,
+        1.236961,
+        -2.195327,
+        2.822165,
+        1.050302
+      ],
+      "collides": false,
+      "minDistMm": 2.423,
+      "pairs": [],
+      "robotId": "xarm5",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm5_bio_g2_colliding",
+      "joints": [
+        -4.138948,
+        1.254113,
+        -2.225768,
+        2.861298,
+        1.064866
+      ],
+      "collides": true,
+      "minDistMm": -2.348,
+      "pairs": [
+        [
+          "arm:link3",
+          "gripper:base"
+        ]
+      ],
+      "robotId": "xarm5",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm6_bio_home",
+      "joints": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "collides": false,
+      "minDistMm": 23.193,
+      "pairs": [],
+      "robotId": "xarm6",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm6_bio_g2_safe",
+      "joints": [
+        -2.204904,
+        -0.150334,
+        -1.323658,
+        0.48107,
+        2.233539,
+        2.632999
+      ],
+      "collides": false,
+      "minDistMm": 2.882,
+      "pairs": [],
+      "robotId": "xarm6",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm6_bio_g2_colliding",
+      "joints": [
+        -2.235977,
+        -0.152453,
+        -1.342312,
+        0.48785,
+        2.265016,
+        2.670105
+      ],
+      "collides": true,
+      "minDistMm": -3.954,
+      "pairs": [
+        [
+          "arm:link3",
+          "gripper:right"
+        ],
+        [
+          "arm:link4",
+          "gripper:right"
+        ]
+      ],
+      "robotId": "xarm6",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm7_bio_home",
+      "joints": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "collides": false,
+      "minDistMm": 23.041,
+      "pairs": [],
+      "robotId": "xarm7",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm7_bio_g2_safe",
+      "joints": [
+        0.041236,
+        0.173625,
+        4.504857,
+        2.223129,
+        1.110479,
+        2.233981,
+        -2.588466
+      ],
+      "collides": false,
+      "minDistMm": 2.688,
+      "pairs": [],
+      "robotId": "xarm7",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "xarm7_bio_g2_colliding",
+      "joints": [
+        0.04176,
+        0.175832,
+        4.562108,
+        2.251382,
+        1.124592,
+        2.262372,
+        -2.621362
+      ],
+      "collides": true,
+      "minDistMm": -3.627,
+      "pairs": [
+        [
+          "arm:link4",
+          "gripper:left"
+        ],
+        [
+          "arm:link5",
+          "gripper:left"
+        ]
+      ],
+      "robotId": "xarm7",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "uf850_bio_home",
+      "joints": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "collides": false,
+      "minDistMm": 21.481,
+      "pairs": [],
+      "robotId": "uf850",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "uf850_bio_g2_safe",
+      "joints": [
+        1.800884,
+        1.484416,
+        -0.1297,
+        2.795683,
+        0.777551,
+        -0.855371
+      ],
+      "collides": false,
+      "minDistMm": 2.021,
+      "pairs": [],
+      "robotId": "uf850",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "uf850_bio_g2_colliding",
+      "joints": [
+        1.825549,
+        1.504747,
+        -0.131476,
+        2.833973,
+        0.788201,
+        -0.867086
+      ],
+      "collides": true,
+      "minDistMm": -2.429,
+      "pairs": [
+        [
+          "arm:link2",
+          "gripper:right"
+        ]
+      ],
+      "robotId": "uf850",
+      "gripperId": "bio-gripper-g2",
+      "opening": 150
+    },
+    {
+      "label": "lite6_lite6-gripper_home",
+      "joints": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "collides": false,
+      "minDistMm": 6.197,
+      "pairs": [],
+      "robotId": "lite6",
+      "gripperId": "lite6-gripper",
+      "opening": 100
+    },
+    {
+      "label": "lite6_lite6-gripper_safe",
+      "joints": [
+        0.869148,
+        -0.918163,
+        0.306346,
+        2.894534,
+        -1.397814,
+        -4.034141
+      ],
+      "collides": false,
+      "minDistMm": 2.111,
+      "pairs": [],
+      "robotId": "lite6",
+      "gripperId": "lite6-gripper",
+      "opening": 100
+    },
+    {
+      "label": "lite6_lite6-gripper_colliding",
+      "joints": [
+        0.897664,
+        -0.948287,
+        0.316397,
+        2.9895,
+        -1.443675,
+        -4.166497
+      ],
+      "collides": true,
+      "minDistMm": -5.845,
+      "pairs": [
+        [
+          "arm:link1",
+          "gripper:base"
+        ],
+        [
+          "arm:link1",
+          "gripper:right"
+        ]
+      ],
+      "robotId": "lite6",
+      "gripperId": "lite6-gripper",
+      "opening": 100
+    },
+    {
+      "label": "lite6_lite6-vacuum-gripper_home",
+      "joints": [
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0,
+        0.0
+      ],
+      "collides": false,
+      "minDistMm": 6.197,
+      "pairs": [],
+      "robotId": "lite6",
+      "gripperId": "lite6-vacuum-gripper",
+      "opening": 0
+    },
+    {
+      "label": "lite6_lite6-vacuum-gripper_safe",
+      "joints": [
+        0.145245,
+        -0.068555,
+        0.069717,
+        -0.016848,
+        0.488603,
+        -0.305304
+      ],
+      "collides": false,
+      "minDistMm": 2.221,
+      "pairs": [],
+      "robotId": "lite6",
+      "gripperId": "lite6-vacuum-gripper",
+      "opening": 0
+    },
+    {
+      "label": "lite6_lite6-vacuum-gripper_colliding",
+      "joints": [
+        0.216784,
+        -0.102322,
+        0.104056,
+        -0.025147,
+        0.72926,
+        -0.455679
+      ],
+      "collides": true,
+      "minDistMm": -5.845,
+      "pairs": [
+        [
+          "arm:link1",
+          "gripper:base"
+        ],
+        [
+          "arm:link_base",
+          "gripper:base"
+        ]
+      ],
+      "robotId": "lite6",
+      "gripperId": "lite6-vacuum-gripper",
+      "opening": 0
+    }
+  ]
+}

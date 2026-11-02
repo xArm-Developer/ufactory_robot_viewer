@@ -18,6 +18,7 @@ import {
   homeJoints,
   IKSolver,
   jogVelocity,
+  jointVelocity,
   jointNames,
   jointValues,
   limits,
@@ -91,8 +92,13 @@ describe('robot registry & shared kinematics utilities', () => {
     expect(q.angleTo(new Quaternion().setFromEuler(new Euler(0.3, -0.7, 1.2, 'ZYX')))).toBeLessThan(1e-7);
     expect(toRPY(q)).toEqual(expect.arrayContaining([expect.closeTo(0.3), expect.closeTo(-0.7), expect.closeTo(1.2)]));
     expect(jogVelocity(1)).toEqual({ linearMmPerSec: 2.5, angularDegPerSec: 1 });
-    expect(jogVelocity(20)).toEqual({ linearMmPerSec: 50, angularDegPerSec: 20 });
-    expect(jogVelocity(100)).toEqual({ linearMmPerSec: 250, angularDegPerSec: 100 });
+    expect(jogVelocity(20).linearMmPerSec).toBe(50);
+    expect(jogVelocity(34).angularDegPerSec).toBe(14);
+    expect(jogVelocity(50).angularDegPerSec).toBeCloseTo(20.303030303, 6);
+    expect(jogVelocity(67).angularDegPerSec).toBe(27);
+    expect(jogVelocity(100)).toEqual({ linearMmPerSec: 250, angularDegPerSec: 40 });
+    expect(jogVelocity(-20).angularDegPerSec).toBe(1);
+    expect(jogVelocity(120).angularDegPerSec).toBe(40);
   });
 });
 
@@ -253,5 +259,17 @@ describe.each(['xarm5', 'xarm6', 'xarm7'] as const)('%s linear-rail carriage mou
         expect(mounted.quaternion.angleTo(new Quaternion())).toBeLessThan(1e-9);
       }
     }
+  });
+});
+
+
+describe('joint speed mapping', () => {
+  it('maps the slider linearly from 1 to 45 degrees per second', () => {
+    expect(jointVelocity(1)).toBe(1);
+    expect(jointVelocity(100)).toBe(45);
+    expect(jointVelocity(20)).toBeCloseTo(1 + 19 * 44 / 99, 10);
+    expect(jointVelocity(50)).toBeCloseTo(1 + 49 * 44 / 99, 10);
+    expect(jointVelocity(-20)).toBe(1);
+    expect(jointVelocity(120)).toBe(45);
   });
 });

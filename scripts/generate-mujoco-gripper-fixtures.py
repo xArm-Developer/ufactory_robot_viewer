@@ -1,6 +1,6 @@
 """Generate independent arm + TCP fixtures from the vendored reference combination URDFs.
 
-Run with /opt/conda_envs/py314/bin/python scripts/generate-mujoco-gripper-fixtures.py.
+Run with python scripts/generate-mujoco-gripper-fixtures.py.
 Meshes are removed before MuJoCo compilation; the original joint transforms remain intact.
 """
 import json
