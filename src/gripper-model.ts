@@ -38,7 +38,7 @@ export function createGripperModel(spec: GripperSpec, parts: Record<string, THRE
     // entire geometry to the flange, then apply its base-only face correction.
     const geometry = pivot(root, [0, 0, 0.001498179100862778]);
     const base = part('base');
-    base.position.z += -0.001498179100862778 + 0.00006;
+    base.position.z += -0.001498179100862778;
     geometry.add(base);
     const leftOuter = pivot(geometry, [0, 0.035, 0.059098]);
     const rightOuter = pivot(geometry, [0, -0.035, 0.059098]);

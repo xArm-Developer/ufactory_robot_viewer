@@ -35,6 +35,16 @@ describe('scene record validation', () => {
     ]) expect(parse(invalid)).toBeNull();
     expect(parseSceneSnapshot('{broken')).toBeNull();
   });
+
+  it('keeps valid optional TCP branches and ignores malformed ones without losing the scene', () => {
+    const legacy = scene({ robot: 'uf850' });
+    const withRpy = scene({ robot: 'uf850', tcpRpy: [0.3, 2.1, -0.4] });
+    expect(parse(legacy)).toEqual(legacy);
+    expect(parse(withRpy)).toEqual(withRpy);
+    for (const tcpRpy of [null, [], [0, 1], [0, 1, 2, 3], [0, '1', 2], [0, null, 2], 'bad']) {
+      expect(parse({ ...legacy, tcpRpy })).toEqual(legacy);
+    }
+  });
 });
 
 describe('scene persistence', () => {

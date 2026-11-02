@@ -87,7 +87,7 @@ test('joint collision interception rolls back input, highlights only colliding l
   await expect(page.locator('#collision-toast')).toBeVisible();
   await expect(page.locator('#collision-toast-text')).toContainText('检测到碰撞，已阻止继续运动：');
   await expect(page.locator('#collision-toast-text')).toContainText('基座');
-  await expect(page.locator('#collision-toast-text')).toContainText(/(?:基座|连杆\d+)-(?:基座|连杆\d+)/);
+  await expect(page.locator('#collision-toast-text')).toContainText(/(?:基座|连杆\d+|末端法兰)-(?:基座|连杆\d+|末端法兰)/);
   // Control panel footer must remain empty on collisions
   await expect(page.locator('#solver-status')).not.toHaveClass(/has-message/);
   await expect(page.locator('#status-text')).toBeEmpty();
@@ -102,7 +102,7 @@ test('joint collision interception rolls back input, highlights only colliding l
   await page.locator('#language').click();
   await expect(page.locator('#collision-toast-text')).toContainText('Collision detected; motion blocked: ');
   await expect(page.locator('#collision-toast-text')).toContainText('Base');
-  await expect(page.locator('#collision-toast-text')).toContainText(/(?:Base|Link \d+)-(?:Base|Link \d+)/);
+  await expect(page.locator('#collision-toast-text')).toContainText(/(?:Base|Link \d+|End flange)-(?:Base|Link \d+|End flange)/);
   for (const width of [1440, 800, 320]) {
     await page.setViewportSize({ width, height: 1000 });
     expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);

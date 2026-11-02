@@ -1,12 +1,13 @@
 import { RAIL_SPEC, SENSOR_SPEC, supportsLinearRail, supportsSensor, validRailPosition } from './accessories';
 import { getGripper, supportsGripper, validOpening, type GripperId } from './grippers';
 import { ROBOTS, type RobotId } from './robots';
+import type { RPY } from './kinematics';
 
 export const SCENE_STORAGE_KEY = 'uf-robots:scene';
 export const SCENE_VERSION = 1;
 const SAVE_INTERVAL_MS = 200;
 
-/** Joint angles are radians; rail travel and continuous gripper opening are millimetres. */
+/** Joint angles and TCP RPY are radians; rail travel and gripper opening are millimetres. */
 export interface SceneSnapshot {
   version: typeof SCENE_VERSION;
   robot: RobotId;
@@ -16,6 +17,7 @@ export interface SceneSnapshot {
   sensor: typeof SENSOR_SPEC.id | null;
   gripper: GripperId | null;
   opening: number | null;
+  tcpRpy?: RPY;
 }
 
 /** Validate the self-contained parts of a record before loading any assets. */
@@ -36,6 +38,9 @@ export function parseSceneSnapshot(raw: string): SceneSnapshot | null {
     if (gripper?.opening) {
       if (typeof data.opening !== 'number' || !validOpening(gripper, data.opening)) return null;
     } else if (data.opening !== null) return null;
+    const tcpRpy = Array.isArray(data.tcpRpy) && data.tcpRpy.length === 3 &&
+      data.tcpRpy.every(angle => typeof angle === 'number' && Number.isFinite(angle))
+      ? [...data.tcpRpy] as RPY : undefined;
     return {
       version: SCENE_VERSION,
       robot: robot.id,
@@ -45,6 +50,7 @@ export function parseSceneSnapshot(raw: string): SceneSnapshot | null {
       sensor: data.sensor as SceneSnapshot['sensor'],
       gripper: gripper?.id ?? null,
       opening: data.opening as number | null,
+      ...(tcpRpy ? { tcpRpy } : {}),
     };
   } catch {
     return null;

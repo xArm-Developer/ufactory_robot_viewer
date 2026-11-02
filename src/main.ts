@@ -1,6 +1,7 @@
 import './style.css';
 import { MathUtils, Vector3 } from 'three';
 import {
+  formatJointLimitMessage,
   forward,
   fromRPY,
   homeJoints,
@@ -14,6 +15,7 @@ import {
   toRPY,
   type CartesianAxis,
   type Pose,
+  type RPY,
 } from './kinematics';
 import { DEFAULT_ROBOT_ID, getRobotSpec, ROBOTS, type RobotSpec } from './robots';
 import { getGripper, GRIPPERS, supportsGripper, validOpening, type GripperSpec } from './grippers';
@@ -26,7 +28,7 @@ import {
   validRailPosition,
 } from './accessories';
 import { renderAssetInventory, type SceneAsset } from './assets';
-import type { CollisionBodyId, CollisionPair } from './collision';
+import { formatCollisionBodyName, type CollisionBodyId, type CollisionPair } from './collision';
 import { levelFlange } from './leveling';
 import { RobotScene } from './scene';
 import { SCENE_VERSION, SceneStorage, type SceneSnapshot } from './scene-storage';
@@ -405,7 +407,7 @@ interface ActiveJog {
   rafId: number;
   lastTime: number;
   position: Vector3;
-  rpy: [number, number, number];
+  rpy: RPY;
 }
 
 interface ActiveJointJog {
@@ -527,10 +529,11 @@ function useSceneSnapshot(snapshot: SceneSnapshot) {
 type LoadAttempt = {
   kind: 'saved' | 'link' | 'default' | 'rollback';
   joints?: number[];
+  tcpRpy?: RPY;
   blocked?: CollisionStatusState;
 };
 let loadAttempt: LoadAttempt | undefined = storedScene.kind === 'valid'
-  ? { kind: 'saved', joints: storedScene.snapshot.joints }
+  ? { kind: 'saved', joints: storedScene.snapshot.joints, tcpRpy: storedScene.snapshot.tcpRpy }
   : { kind: 'link' };
 if (storedScene.kind === 'valid') useSceneSnapshot(storedScene.snapshot);
 let lastValidAssembly: AssemblySnapshot = snapshotAssembly();
@@ -546,12 +549,14 @@ interface CollisionStatusState {
   gripper?: GripperSpec;
 }
 let statusKey: StatusKey | null = null;
+let statusMessage: string | null = null;
 let activeCollision: CollisionStatusState | null = null;
 const fieldInvalid: Record<NumericField, boolean> = { opening: false, rail: false };
 let loadKey: Key = 'loading';
 let scene: RobotScene | undefined;
 let model: URDFRobot | undefined;
 let solver: IKSolver | undefined;
+let tcpRpy: RPY | undefined;
 let showBaseFrame = false;
 let showTcpFrame = false;
 let activeJog: ActiveJog | undefined;
@@ -559,6 +564,7 @@ let activeJointJog: ActiveJointJog | undefined;
 let activeRailJog: ActiveRailJog | undefined;
 let activePresetJog: ActivePresetJog | undefined;
 let selectionToken = 0;
+let selectionAbort: AbortController | undefined;
 let sceneReady = false;
 let page: 'robot' | 'example' = initialParams.get('example') === 'packing-01' ? 'example' : 'robot';
 let packing: PackingExample | undefined;
@@ -575,6 +581,7 @@ function currentSceneSnapshot(): SceneSnapshot | undefined {
     sensor: assembly.sensor ? SENSOR_SPEC.id : null,
     gripper: assembly.gripper?.id ?? null,
     opening: assembly.gripper?.opening ? assembly.opening : null,
+    ...(tcpRpy ? { tcpRpy: [...tcpRpy] as RPY } : {}),
   };
 }
 
@@ -795,33 +802,13 @@ function collectCollisionBodies(pairs: readonly CollisionPair[]): CollisionBodyI
   return [...ids];
 }
 
-function formatCollisionBodyName(id: CollisionBodyId, lang: Language, gripper?: GripperSpec): string {
-  if (id === 'arm:link_base') return lang === 'zh' ? '基座' : 'Base';
-  if (id.startsWith('arm:link')) {
-    const index = id.slice('arm:link'.length);
-    return lang === 'zh' ? `连杆${index}` : `Link ${index}`;
-  }
-  if (id === 'sensor:ai1500') return SENSOR_SPEC.name[lang];
-  if (id === 'rail:fixed') return lang === 'zh' ? '直线滑轨导轨' : 'Linear motor rail';
-  if (id === 'rail:carriage') return lang === 'zh' ? '直线滑轨滑块' : 'Linear motor carriage';
-  if (id === 'rail:drag_chain') return lang === 'zh' ? '直线滑轨拖链' : 'Linear motor drag chain';
-
-  const gName = gripper?.name ?? (lang === 'zh' ? '夹爪' : 'Gripper');
-  if (id === 'gripper:base') {
-    if (gripper?.id === 'lite6-vacuum-gripper') return gName;
-    return lang === 'zh' ? `${gName} 基座` : `${gName} base`;
-  }
-  if (id === 'gripper:left') return lang === 'zh' ? `${gName} 左指` : `${gName} left finger`;
-  if (id === 'gripper:right') return lang === 'zh' ? `${gName} 右指` : `${gName} right finger`;
-  return id;
-}
-
 function formatCollisionMessage(state: CollisionStatusState, lang: Language): string {
+  const dof = assembly.spec.dof;
   const shown = state.pairs
     .slice(0, 2)
     .map(
       pair =>
-        `${formatCollisionBodyName(pair.first, lang, state.gripper)}-${formatCollisionBodyName(pair.second, lang, state.gripper)}`,
+        `${formatCollisionBodyName(pair.first, lang, state.gripper, dof)}-${formatCollisionBodyName(pair.second, lang, state.gripper, dof)}`,
     );
   const sep = lang === 'zh' ? '、' : ', ';
   const extraCount = state.pairs.length - shown.length;
@@ -848,7 +835,7 @@ function translate() {
   $('#language-label').textContent = language === 'zh' ? 'EN' : '中文';
   $('#language').setAttribute('aria-label', language === 'zh' ? 'Switch to English' : '切换为中文');
   $('.page-nav').setAttribute('aria-label', language === 'zh' ? '页面' : 'Pages');
-  $('#status-text').textContent = statusKey ? copy[language][statusKey] : '';
+  $('#status-text').textContent = statusMessage ?? (statusKey ? copy[language][statusKey] : '');
   $('#collision-toast-text').textContent = activeCollision ? formatCollisionMessage(activeCollision, language) : '';
   for (const field of ['opening', 'rail'] as const) {
     if (fieldInvalid[field]) $(`#${field}-error-text`).textContent = copy[language].invalid;
@@ -885,6 +872,7 @@ function clearCollisionStatus() {
 
 function status(key: StatusKey | null, error = false) {
   statusKey = key;
+  statusMessage = null;
   clearCollisionStatus();
   if (key !== null) scene?.clearCollisionHighlight();
   $('#status-text').textContent = key ? copy[language][key] : '';
@@ -893,8 +881,19 @@ function status(key: StatusKey | null, error = false) {
   $('#solver-status').classList.toggle('error', error);
 }
 
+function setJointLimitStatus(jointId: number, angleDeg: number) {
+  statusKey = null;
+  statusMessage = formatJointLimitMessage(jointId, angleDeg);
+  clearCollisionStatus();
+  scene?.clearCollisionHighlight();
+  $('#status-text').textContent = statusMessage;
+  $('#solver-status').hidden = false;
+  $('#solver-status').classList.add('has-message', 'error');
+}
+
 function setCollisionStatus(state: CollisionStatusState) {
   statusKey = null;
+  statusMessage = null;
   $('#status-text').textContent = '';
   $('#solver-status').hidden = true;
   $('#solver-status').classList.remove('has-message', 'error');
@@ -974,13 +973,12 @@ function syncJointFields() {
   });
 }
 
-function poseValues(pose: Pose): number[] {
-  return [...pose.position.toArray().map(value => value * 1000), ...toRPY(pose.quaternion).map(MathUtils.radToDeg)];
-}
-
 function syncFKFields() {
   if (!model) return;
-  poseValues(currentForward()).forEach((value, i) => { $(`#fk-${i}`).textContent = formatValue(value); });
+  const pose = currentForward();
+  tcpRpy = toRPY(pose.quaternion, tcpRpy);
+  [...pose.position.toArray().map(value => value * 1000), ...tcpRpy.map(MathUtils.radToDeg)]
+    .forEach((value, i) => { $(`#fk-${i}`).textContent = formatValue(value); });
 }
 
 function syncTelemetry() {
@@ -1016,7 +1014,7 @@ function saveJogSpeed() {
   }
 }
 
-function solveTarget(pose: Pose) {
+function solveTarget(pose: Pose, referenceRpy?: RPY) {
   if (!solver || !model || !scene) return;
   const prev = jointValues(model);
   const result = solver.solve(pose);
@@ -1030,19 +1028,27 @@ function solveTarget(pose: Pose) {
       return;
     }
     scene.clearCollisionHighlight();
+    if (referenceRpy) tcpRpy = [...referenceRpy];
     syncTelemetry();
     status(null);
     recordSceneChange();
   } else {
     if (result.reason === 'invalid') status('invalid', true);
-    else { scene.clearCollisionHighlight(); status(null); }
+    else if (result.reason === 'joint_limit' && result.exceededJointId !== undefined && result.exceededAngleDeg !== undefined) {
+      setJointLimitStatus(result.exceededJointId, result.exceededAngleDeg);
+    } else {
+      scene.clearCollisionHighlight();
+      status(null);
+    }
   }
 }
 
 function executeSingleStep(axis: CartesianAxis, dir: 1 | -1) {
   if (!model) return;
   const step = axis === 'x' || axis === 'y' || axis === 'z' ? DEFAULT_LINEAR_STEP_MM : DEFAULT_ANGULAR_STEP_DEG;
-  solveTarget(stepBasePose(currentForward(), axis, dir * step));
+  const nextPose = stepBasePose(currentForward(), axis, dir * step, tcpRpy);
+  const nextRpy = toRPY(nextPose.quaternion, tcpRpy);
+  solveTarget(nextPose, nextRpy);
 }
 
 function startContinuousJog(jog: ActiveJog) {
@@ -1050,7 +1056,7 @@ function startContinuousJog(jog: ActiveJog) {
   jog.continuous = true;
   const startPose = currentForward();
   jog.position = startPose.position.clone();
-  jog.rpy = toRPY(startPose.quaternion);
+  jog.rpy = toRPY(startPose.quaternion, tcpRpy);
   jog.lastTime = performance.now();
   const initialQuaternion = startPose.quaternion.clone();
 
@@ -1059,7 +1065,7 @@ function startContinuousJog(jog: ActiveJog) {
     const rawPercent = numberValue($<HTMLInputElement>('#jog-speed'));
     const { linearMmPerSec, angularDegPerSec } = jogVelocity(Number.isFinite(rawPercent) ? rawPercent : DEFAULT_JOG_SPEED);
     const nextPos = jog.position.clone();
-    const nextRpy: [number, number, number] = [...jog.rpy];
+    const nextRpy: RPY = [...jog.rpy];
     let nextPose: Pose;
     if (jog.axis === 'x' || jog.axis === 'y' || jog.axis === 'z') {
       nextPos[jog.axis] += (jog.dir * linearMmPerSec * dt) / 1000;
@@ -1084,12 +1090,19 @@ function startContinuousJog(jog: ActiveJog) {
       scene?.clearCollisionHighlight();
       jog.position.copy(nextPos);
       jog.rpy = nextRpy;
+      tcpRpy = [...nextRpy];
       syncTelemetry();
       status(null);
       recordSceneChange();
     } else {
       if (result.reason === 'invalid') status('invalid', true);
-      else { scene?.clearCollisionHighlight(); status(null); }
+      else if (result.reason === 'joint_limit' && result.exceededJointId !== undefined && result.exceededAngleDeg !== undefined) {
+        setJointLimitStatus(result.exceededJointId, result.exceededAngleDeg);
+        stopJog(false);
+      } else {
+        scene?.clearCollisionHighlight();
+        status(null);
+      }
     }
   };
 
@@ -1187,6 +1200,7 @@ function stepTowardsJointTarget(target: readonly number[], maxAngleRad: number):
       return 'blocked';
     }
     scene.clearCollisionHighlight();
+    syncTelemetry();
     status(null);
     recordSceneChange();
     budget -= step;
@@ -1505,7 +1519,7 @@ function bindJogButtons() {
         rafId: 0,
         lastTime: 0,
         position: current.position.clone(),
-        rpy: toRPY(current.quaternion),
+        rpy: toRPY(current.quaternion, tcpRpy),
       };
       activeJog = jog;
       jog.holdTimer = window.setTimeout(() => startContinuousJog(jog), LONG_PRESS_MS);
@@ -1658,6 +1672,9 @@ function fallbackInitialScene(reason: 'invalid' | 'collision'): boolean {
 /** A new selection invalidates both pending loads and their error messages. */
 async function loadSelection(reloadRobot: boolean) {
   const token = ++selectionToken;
+  selectionAbort?.abort();
+  const controller = new AbortController();
+  selectionAbort = controller;
   scene?.hideReachRing();
   stopJog(false);
   sceneReady = false;
@@ -1681,13 +1698,21 @@ async function loadSelection(reloadRobot: boolean) {
   scene.clearCollisionHighlight();
   setLoadMessage('loading');
   status(null);
+  const accessoryConfig = {
+    rail: assembly.rail,
+    railMm: assembly.railMm,
+    sensor: assembly.sensor,
+    gripper: assembly.gripper,
+    opening: assembly.opening,
+  };
+  const preparedAccessories = scene.prepareAccessories(accessoryConfig, controller.signal);
 
   try {
     const attempt = loadAttempt;
     let blockedAccessoryState: CollisionStatusState | null = null;
     const freshRobot = reloadRobot || !model;
     if (freshRobot) {
-      const loaded = await scene.load(spec);
+      const loaded = await scene.load(spec, controller.signal);
       if (!loaded || token !== selectionToken) return;
       model = loaded;
       setJoints(model, homeJoints(spec.dof));
@@ -1700,16 +1725,7 @@ async function loadSelection(reloadRobot: boolean) {
       if (fallbackInitialScene('invalid')) return;
       throw new Error('Saved joint angles are outside the robot limits');
     }
-    const configured = await scene.setAssemblyAccessories(
-      {
-        rail: assembly.rail,
-        railMm: assembly.railMm,
-        sensor: assembly.sensor,
-        gripper: assembly.gripper,
-        opening: assembly.opening,
-      },
-      spec,
-    );
+    const configured = await scene.setAssemblyAccessories(accessoryConfig, spec, preparedAccessories);
     if (!configured || token !== selectionToken) return;
 
     const hits = scene.detectCollisions();
@@ -1742,7 +1758,7 @@ async function loadSelection(reloadRobot: boolean) {
       const previous = lastValidScene;
       const blocked: CollisionStatusState = { kind: 'accessory', pairs: hits, gripper: assembly.gripper };
       useSceneSnapshot(previous);
-      loadAttempt = { kind: 'rollback', joints: previous.joints, blocked };
+      loadAttempt = { kind: 'rollback', joints: previous.joints, tcpRpy: previous.tcpRpy, blocked };
       writeUrl();
       void loadSelection(true);
       return;
@@ -1758,6 +1774,11 @@ async function loadSelection(reloadRobot: boolean) {
     solver!.setToolOffset(offset);
     scene.setToolOffset(offset);
     scene.setReachRing(spec, assembly.sensor, assembly.gripper?.id);
+    if (attempt || freshRobot) {
+      const savedRpy = attempt?.tcpRpy;
+      tcpRpy = savedRpy && fromRPY(...savedRpy).angleTo(currentForward().quaternion) <= 0.0001
+        ? [...savedRpy] : undefined;
+    }
     syncTelemetry();
     sceneReady = true;
     renderSceneCopy();
@@ -1787,6 +1808,8 @@ async function loadSelection(reloadRobot: boolean) {
       console.error(error);
       setLoadMessage('failed');
     }
+  } finally {
+    preparedAccessories.discard();
   }
 }
 
@@ -1972,6 +1995,7 @@ async function start() {
     sceneCanvas().addEventListener('webglcontextlost', event => {
       event.preventDefault();
       ++selectionToken;
+      selectionAbort?.abort();
       scene?.clear();
       scene = undefined;
       sceneReady = false;

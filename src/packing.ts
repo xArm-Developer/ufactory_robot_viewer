@@ -183,7 +183,10 @@ export class PackingExample {
     const chinese = this.language === 'zh';
     const link = /^link(\d+)_h/.exec(name);
     const block = /^block_(\d+)$/.exec(name);
-    if (link) return chinese ? `连杆${link[1]}` : `Link ${link[1]}`;
+    if (link) {
+      if (link[1] === '6') return chinese ? '末端法兰' : 'End flange';
+      return chinese ? `连杆${link[1]}` : `Link ${link[1]}`;
+    }
     if (block) return chinese ? `工件 ${Number(block[1]) + 1}` : `Part ${Number(block[1]) + 1}`;
     if (name.startsWith('link_base_')) return chinese ? '机械臂基座' : 'Arm base';
     if (name === 'gripper_base') return chinese ? '夹爪基座' : 'Gripper base';

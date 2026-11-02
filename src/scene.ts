@@ -1,8 +1,6 @@
 import * as THREE from 'three';
 import { OrbitControls } from 'three/addons/controls/OrbitControls.js';
-import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
-import { STLLoader } from 'three/addons/loaders/STLLoader.js';
 import URDFLoader, { type URDFRobot } from 'urdf-loader';
 import type { RobotSpec } from './robots';
 import type { GripperId, GripperSpec } from './grippers';
@@ -28,6 +26,8 @@ import {
   type CollisionPair,
 } from './collision';
 import { CollisionHighlighter } from './collision-highlight';
+import { checkAbort, ModelCache, type ModelLease } from './model-cache';
+import modelAssets from 'virtual:model-assets';
 
 export interface AssemblyAccessoriesConfig {
   rail: boolean;
@@ -37,12 +37,22 @@ export interface AssemblyAccessoriesConfig {
   opening: number;
 }
 
-async function loadGripperPart(loader: GLTFLoader, spec: GripperSpec, name: string, baseUrl: URL): Promise<THREE.Object3D> {
-  if (spec.id === 'lite6-gripper' && (name === 'finger1' || name === 'finger2')) {
-    const geometry = await new STLLoader().loadAsync(new URL(`${name}.stl`, baseUrl).href);
-    return new THREE.Mesh(geometry, new THREE.MeshStandardMaterial({ color: 0x202324, roughness: 0.72, metalness: 0.08 }));
-  }
-  return (await loader.loadAsync(new URL(`${name}.glb`, baseUrl).href)).scene;
+interface PreparedAccessoryData {
+  leases: ModelLease[];
+  railIndex: number;
+  sensorIndex: number;
+  gripperStartIndex: number;
+  gripperNames: string[];
+  manifests: (CollisionAssetManifest | undefined)[];
+}
+
+export interface PreparedAccessories {
+  take(): Promise<PreparedAccessoryData>;
+  discard(): void;
+}
+
+function releaseAssets(leases: readonly ModelLease[]): void {
+  for (const lease of leases) lease.release();
 }
 
 function disposeObject(root: THREE.Object3D): void {
@@ -70,7 +80,7 @@ function enableShadows(root: THREE.Object3D): void {
   });
 }
 
-function adjustLite6Materials(robot: URDFRobot): void {
+function adjustLite6Materials(robot: URDFRobot, ownedMaterials: Set<THREE.Material>): void {
   // Part names are local to each link's visual GLB. Link 6 contains the metal flange.
   const parts: Record<string, { white: readonly string[]; cover?: string }> = {
     link_base: { white: ['part_0'], cover: 'part_1' },
@@ -91,8 +101,13 @@ function adjustLite6Materials(robot: URDFRobot): void {
         const isWhite = white.includes(object.name);
         const isCover = object.name === cover;
         if (!isWhite && !isCover) return;
-        const materials = Array.isArray(object.material) ? object.material : [object.material];
-        for (const material of materials) {
+        const copies = (Array.isArray(object.material) ? object.material : [object.material]).map(material => {
+          const copy = material.clone();
+          ownedMaterials.add(copy);
+          return copy;
+        });
+        object.material = Array.isArray(object.material) ? copies : copies[0];
+        for (const material of copies) {
           if (!(material instanceof THREE.MeshStandardMaterial)) continue;
           if (isWhite) {
             material.roughness = 0.3;
@@ -156,6 +171,12 @@ export class RobotScene {
   private camera: THREE.PerspectiveCamera;
   private orbit: OrbitControls;
   private draco: DRACOLoader;
+  private modelCache: ModelCache;
+  private armAssets: ModelLease[] = [];
+  private armTemplates = new Map<string, URDFRobot>();
+  private accessoryAssets: ModelLease[] = [];
+  private ownedArmMaterials = new Set<THREE.Material>();
+  private railDragGeometry?: THREE.BufferGeometry;
   private resizeObserver: ResizeObserver;
   private reachRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
   private robotMount = new THREE.Group();
@@ -177,7 +198,7 @@ export class RobotScene {
   private disposed = false;
   private collisionDetector = new CollisionDetector();
   private collisionHighlighter = new CollisionHighlighter();
-  private collisionManifestCache = new Map<string, Promise<CollisionAssetManifest>>();
+  private collisionManifestCache = new Map<string, CollisionAssetManifest>();
 
   constructor(private container: HTMLElement) {
     this.robotMount.name = 'robot_mount';
@@ -193,6 +214,7 @@ export class RobotScene {
 
     this.draco = new DRACOLoader();
     this.draco.setDecoderPath(new URL(`${import.meta.env.BASE_URL}draco/`, document.baseURI).href);
+    this.modelCache = new ModelCache(this.draco);
 
     this.camera = new THREE.PerspectiveCamera(36, 1, 0.01, 100);
     this.camera.up.set(0, 0, 1);
@@ -203,7 +225,7 @@ export class RobotScene {
     this.orbit.dampingFactor = 0.4;
     this.orbit.minDistance = 0.25;
     this.orbit.maxDistance = 6;
-    this.orbit.maxPolarAngle = Math.PI * 0.49;
+    this.orbit.maxPolarAngle = Math.PI - 0.01;
     this.orbit.addEventListener('change', () => this.requestRender());
     this.orbit.update();
 
@@ -246,21 +268,17 @@ export class RobotScene {
     });
   }
 
-  private fetchCollisionManifest(modelId: string): Promise<CollisionAssetManifest> {
+  private async fetchCollisionManifest(modelId: string, signal?: AbortSignal): Promise<CollisionAssetManifest> {
+    checkAbort(signal);
     const cached = this.collisionManifestCache.get(modelId);
     if (cached) return cached;
     const url = new URL(`${import.meta.env.BASE_URL}models/${modelId}/collision.json`, document.baseURI).href;
-    const promise = fetch(url)
-      .then(async response => {
-        if (!response.ok) throw new Error(`Collision manifest HTTP ${response.status} for ${modelId}`);
-        return (await response.json()) as CollisionAssetManifest;
-      })
-      .catch((error: unknown) => {
-        this.collisionManifestCache.delete(modelId);
-        throw error;
-      });
-    this.collisionManifestCache.set(modelId, promise);
-    return promise;
+    const response = await fetch(url, { signal });
+    if (!response.ok) throw new Error(`Collision manifest HTTP ${response.status} for ${modelId}`);
+    const manifest = (await response.json()) as CollisionAssetManifest;
+    checkAbort(signal);
+    this.collisionManifestCache.set(modelId, manifest);
+    return manifest;
   }
 
   private clearCurrentRobot(): void {
@@ -269,7 +287,13 @@ export class RobotScene {
     if (!this.robot) return;
     this.robot.removeFromParent();
     this.robotMount.removeFromParent();
-    disposeObject(this.robot);
+    if (this.baseFrame) disposeObject(this.baseFrame);
+    if (this.tcpFrame) disposeObject(this.tcpFrame);
+    if (this.reachRing) disposeObject(this.reachRing);
+    for (const material of this.ownedArmMaterials) material.dispose();
+    this.ownedArmMaterials.clear();
+    releaseAssets(this.armAssets);
+    this.armAssets = [];
     this.robot = undefined;
     this.reachRing = undefined;
     this.baseFrame = undefined;
@@ -291,21 +315,22 @@ export class RobotScene {
 
     if (this.gripper) {
       this.gripper.root.removeFromParent();
-      disposeObject(this.gripper.root);
       this.gripper = undefined;
     }
     if (this.sensorMount) {
       this.sensorMount.removeFromParent();
-      disposeObject(this.sensorMount);
       this.sensorMount = undefined;
     }
     if (this.railRoot) {
       this.railRoot.removeFromParent();
-      disposeObject(this.railRoot);
       this.railRoot = undefined;
       this.railCarriage = undefined;
     }
     this.railDragChain = undefined;
+    this.railDragGeometry?.dispose();
+    this.railDragGeometry = undefined;
+    releaseAssets(this.accessoryAssets);
+    this.accessoryAssets = [];
   }
 
   clear(): void {
@@ -322,12 +347,14 @@ export class RobotScene {
     this.clear();
     this.resizeObserver.disconnect();
     this.orbit.dispose();
+    this.modelCache.dispose();
+    this.armTemplates.clear();
     this.draco.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
 
-  async load(spec: RobotSpec): Promise<URDFRobot | null> {
+  async load(spec: RobotSpec, signal?: AbortSignal): Promise<URDFRobot | null> {
     this.hideReachRing();
     const token = ++this.loadToken;
     ++this.accessoryToken;
@@ -336,136 +363,200 @@ export class RobotScene {
     this.clearCurrentRobot();
 
     const baseUrl = new URL(`${import.meta.env.BASE_URL}${spec.modelDir}`, document.baseURI);
-    const [response, armManifest] = await Promise.all([
-      fetch(new URL(spec.urdfFile, baseUrl)),
-      this.fetchCollisionManifest(spec.id),
-    ]);
-    if (!response.ok) throw new Error(`URDF HTTP ${response.status}`);
-    const xml = await response.text();
-    if (token !== this.loadToken) return null;
-
-    const manager = new THREE.LoadingManager();
-    const gltf = new GLTFLoader(manager).setDRACOLoader(this.draco);
-    const loader = new URDFLoader(manager);
-    loader.workingPath = baseUrl.href;
-    const pending: Promise<void>[] = [];
-    loader.loadMeshCb = (url, _manager, _material, done) => {
-      const task = gltf.loadAsync(url).then(result => {
-        enableShadows(result.scene);
-        done(result.scene);
-      }).catch((error: unknown) => {
-        done(null as unknown as THREE.Object3D, error instanceof Error ? error : new Error(String(error)));
-        throw error;
-      });
-      pending.push(task);
-    };
-    const nextRobot = loader.parse(xml);
-    const results = await Promise.allSettled(pending);
-    if (token !== this.loadToken) {
-      disposeObject(nextRobot);
-      return null;
-    }
-    const failed = results.find(result => result.status === 'rejected');
-    if (failed || pending.length !== spec.visualMeshCount) {
-      disposeObject(nextRobot);
-      if (failed?.status === 'rejected') throw failed.reason;
-      throw new Error(`Expected ${spec.visualMeshCount} visual meshes, found ${pending.length}`);
+    const expected = modelAssets.visuals[spec.id];
+    if (!expected || expected.length !== spec.visualMeshCount) throw new Error(`Missing visual mesh manifest for ${spec.id}`);
+    const urls = expected.map(path => new URL(path, baseUrl).href);
+    const template = this.armTemplates.get(spec.id);
+    // Start all visual requests alongside the URDF and collision manifest.
+    const visualResults = Promise.allSettled(urls.map(url => this.modelCache.acquire(url, signal)));
+    const metadata = Promise.allSettled([
+      template ? Promise.resolve(null) : fetch(new URL(spec.urdfFile, baseUrl), { signal }).then(async response => {
+        if (!response.ok) throw new Error(`URDF HTTP ${response.status}`);
+        return response.text();
+      }),
+      this.fetchCollisionManifest(spec.id, signal),
+    ] as const);
+    const [results, meta] = await Promise.all([visualResults, metadata]);
+    const leases = results.flatMap(result => result.status === 'fulfilled' ? [result.value] : []);
+    const failure = results.find(result => result.status === 'rejected') ?? meta.find(result => result.status === 'rejected');
+    if (token !== this.loadToken || signal?.aborted || failure) {
+      releaseAssets(leases);
+      if (token !== this.loadToken || signal?.aborted) return null;
+      throw (failure as PromiseRejectedResult).reason;
     }
 
-    const endLink = nextRobot.links[spec.eeLink];
-    if (!endLink) {
-      disposeObject(nextRobot);
-      throw new Error(`URDF is missing ${spec.eeLink}`);
+    try {
+      const xml = (meta[0] as PromiseFulfilledResult<string | null>).value;
+      const armManifest = (meta[1] as PromiseFulfilledResult<CollisionAssetManifest>).value;
+      const instances = new Map(urls.map((url, index) => [url, leases[index].object]));
+      let meshCount = 0;
+      let nextRobot: URDFRobot;
+      if (template) {
+        nextRobot = template.clone(true);
+        nextRobot.traverse(object => {
+          const visual = object as THREE.Object3D & { isURDFVisual?: boolean; urdfNode?: Element };
+          if (!visual.isURDFVisual) return;
+          const path = visual.urdfNode?.querySelector('geometry > mesh')?.getAttribute('filename');
+          const instance = path ? instances.get(new URL(path, baseUrl).href) : undefined;
+          if (!instance) throw new Error(`Unexpected visual mesh: ${path}`);
+          instance.position.set(0, 0, 0);
+          instance.quaternion.identity();
+          enableShadows(instance);
+          visual.add(instance);
+          meshCount++;
+        });
+      } else {
+        if (xml === null) throw new Error(`Missing URDF for ${spec.id}`);
+        const documentXml = new DOMParser().parseFromString(xml, 'application/xml');
+        const actual = [...documentXml.querySelectorAll('visual geometry mesh')].map(mesh => mesh.getAttribute('filename'));
+        if (documentXml.querySelector('parsererror') || actual.length !== expected.length ||
+            actual.some((path, index) => path !== expected[index])) {
+          throw new Error(`Visual mesh manifest does not match URDF for ${spec.id}`);
+        }
+        const loader = new URDFLoader();
+        loader.workingPath = baseUrl.href;
+        loader.loadMeshCb = (url, _manager, _material, done) => {
+          const object = instances.get(url);
+          if (!object) throw new Error(`Unexpected visual mesh: ${url}`);
+          meshCount++;
+          enableShadows(object);
+          done(object);
+        };
+        nextRobot = loader.parse(documentXml);
+      }
+      if (meshCount !== expected.length) throw new Error(`Expected ${expected.length} visual meshes, found ${meshCount}`);
+      const endLink = nextRobot.links[spec.eeLink];
+      if (!endLink) throw new Error(`URDF is missing ${spec.eeLink}`);
+      if (!template) {
+        // Keep the arm hierarchy without mesh references; decoded meshes remain under the LRU budget.
+        const structure = nextRobot.clone(true);
+        structure.traverse(object => {
+          if ((object as THREE.Object3D & { isURDFVisual?: boolean }).isURDFVisual) object.clear();
+        });
+        this.armTemplates.set(spec.id, structure);
+      }
+      if (spec.id === 'lite6') adjustLite6Materials(nextRobot, this.ownedArmMaterials);
+
+      this.robot = nextRobot;
+      this.armAssets = leases;
+      this.renderer.domElement.setAttribute('aria-label', `Interactive ${spec.name} 3D model`);
+      this.baseFrame = createCoordinateFrame(0.14, 0.0026);
+      this.baseFrame.name = 'base_coordinate_frame';
+      this.baseFrame.visible = this.baseFrameVisible;
+      this.robot.links.link_base.add(this.baseFrame);
+      this.tcpFrame = createCoordinateFrame(0.1, 0.0022);
+      this.tcpFrame.name = 'tcp_coordinate_frame';
+      this.tcpFrame.visible = this.tcpFrameVisible;
+      endLink.add(this.tcpFrame);
+      this.initialCamera.set(...spec.cameraPosition);
+      this.initialTarget.set(...spec.cameraTarget);
+      this.resetView();
+      this.robotMount.position.set(0, 0, 0);
+      this.robotMount.quaternion.identity();
+      this.robotMount.add(this.robot);
+      this.scene.add(this.robotMount);
+      this.robot.updateWorldMatrix(true, true);
+      this.collisionDetector.registerArmManifest(armManifest, this.robot.links, spec.dof);
+      this.collisionHighlighter.registerArm(this.robot, spec.dof);
+      this.requestRender();
+      return this.robot;
+    } catch (error) {
+      if (this.robot) this.clearCurrentRobot();
+      else {
+        for (const material of this.ownedArmMaterials) material.dispose();
+        this.ownedArmMaterials.clear();
+        releaseAssets(leases);
+      }
+      throw error;
     }
-
-    if (spec.id === 'lite6') adjustLite6Materials(nextRobot);
-
-    this.robot = nextRobot;
-    this.renderer.domElement.setAttribute('aria-label', `Interactive ${spec.name} 3D model`);
-
-    this.baseFrame = createCoordinateFrame(0.14, 0.0026);
-    this.baseFrame.name = 'base_coordinate_frame';
-    this.baseFrame.visible = this.baseFrameVisible;
-    this.robot.links.link_base.add(this.baseFrame);
-
-    this.tcpFrame = createCoordinateFrame(0.1, 0.0022);
-    this.tcpFrame.name = 'tcp_coordinate_frame';
-    this.tcpFrame.visible = this.tcpFrameVisible;
-    endLink.add(this.tcpFrame);
-
-    this.initialCamera.set(...spec.cameraPosition);
-    this.initialTarget.set(...spec.cameraTarget);
-    this.resetView();
-
-    this.robotMount.position.set(0, 0, 0);
-    this.robotMount.quaternion.identity();
-    this.robotMount.add(this.robot);
-    this.scene.add(this.robotMount);
-    this.robot.updateWorldMatrix(true, true);
-    this.collisionDetector.registerArmManifest(armManifest, this.robot.links, spec.dof);
-    this.collisionHighlighter.registerArm(this.robot, spec.dof);
-    this.requestRender();
-    return this.robot;
   }
 
-  async setAssemblyAccessories(config: AssemblyAccessoriesConfig, robotSpec: RobotSpec): Promise<boolean> {
+  /** Begin independent accessory work while the selected arm is loading. */
+  prepareAccessories(config: AssemblyAccessoriesConfig, signal?: AbortSignal): PreparedAccessories {
+    const modelUrl = (path: string) => new URL(`${import.meta.env.BASE_URL}models/${path}`, document.baseURI).href;
+    const tasks: Promise<ModelLease>[] = [];
+    const railIndex = config.rail ? tasks.push(this.modelCache.acquire(modelUrl(`${RAIL_SPEC.id}/model.glb`), signal)) - 1 : -1;
+    const sensorIndex = config.sensor ? tasks.push(this.modelCache.acquire(modelUrl(`${SENSOR_SPEC.id}/model.glb`), signal)) - 1 : -1;
+    const gripperStartIndex = tasks.length;
+    const gripperNames = config.gripper ? gripperPartNames(config.gripper) : [];
+    for (const name of gripperNames) {
+      const extension = config.gripper!.id === 'lite6-gripper' && (name === 'finger1' || name === 'finger2') ? 'stl' : 'glb';
+      tasks.push(this.modelCache.acquire(modelUrl(`${config.gripper!.id}/${name}.${extension}`), signal));
+    }
+    const manifests = [
+      config.rail ? this.fetchCollisionManifest(RAIL_SPEC.id, signal) : Promise.resolve(undefined),
+      config.sensor ? this.fetchCollisionManifest(SENSOR_SPEC.id, signal) : Promise.resolve(undefined),
+      config.gripper ? this.fetchCollisionManifest(config.gripper.id, signal) : Promise.resolve(undefined),
+    ];
+    const result = Promise.all([Promise.allSettled(tasks), Promise.allSettled(manifests)]).then(([models, metadata]) => {
+      const leases = models.flatMap(item => item.status === 'fulfilled' ? [item.value] : []);
+      const failure = models.find(item => item.status === 'rejected') ?? metadata.find(item => item.status === 'rejected');
+      if (failure) {
+        releaseAssets(leases);
+        throw (failure as PromiseRejectedResult).reason;
+      }
+      return { leases, railIndex, sensorIndex, gripperStartIndex, gripperNames,
+        manifests: metadata.map(item => (item as PromiseFulfilledResult<CollisionAssetManifest | undefined>).value) };
+    });
+    // A failed preparation may finish before the arm; keep its rejection handled until take().
+    void result.catch(() => {});
+    let consumed = false;
+    let discarded = false;
+    return {
+      take: async () => {
+        const data = await result;
+        if (discarded || consumed) throw new Error('Accessory preparation is no longer available');
+        consumed = true;
+        return data;
+      },
+      discard: () => {
+        if (discarded || consumed) return;
+        discarded = true;
+        void result.then(data => releaseAssets(data.leases), () => {});
+      },
+    };
+  }
+
+  async setAssemblyAccessories(
+    config: AssemblyAccessoriesConfig,
+    robotSpec: RobotSpec,
+    prepared = this.prepareAccessories(config),
+  ): Promise<boolean> {
     this.hideReachRing();
     const token = ++this.accessoryToken;
     this.clearCurrentAccessories();
-    if (!this.robot) throw new Error('Robot is not loaded');
-
-    const loader = new GLTFLoader().setDRACOLoader(this.draco);
-    const railUrl = new URL(`${import.meta.env.BASE_URL}models/${RAIL_SPEC.id}/model.glb`, document.baseURI).href;
-    const sensorUrl = new URL(`${import.meta.env.BASE_URL}models/${SENSOR_SPEC.id}/model.glb`, document.baseURI).href;
-    const gripperNames = config.gripper ? gripperPartNames(config.gripper) : [];
-    const gripperBaseUrl = config.gripper
-      ? new URL(`${import.meta.env.BASE_URL}models/${config.gripper.id}/`, document.baseURI)
-      : undefined;
-
-    const tasks: Promise<THREE.Object3D>[] = [];
-    const railIndex = config.rail ? tasks.push(loader.loadAsync(railUrl).then(r => r.scene)) - 1 : -1;
-    const sensorIndex = config.sensor ? tasks.push(loader.loadAsync(sensorUrl).then(r => r.scene)) - 1 : -1;
-    const gripperStartIndex = tasks.length;
-    for (const name of gripperNames) {
-      tasks.push(loadGripperPart(loader, config.gripper!, name, gripperBaseUrl!));
+    if (!this.robot) {
+      prepared.discard();
+      throw new Error('Robot is not loaded');
     }
 
-    const manifestTasks: Promise<CollisionAssetManifest | undefined>[] = [
-      config.rail ? this.fetchCollisionManifest(RAIL_SPEC.id) : Promise.resolve(undefined),
-      config.sensor ? this.fetchCollisionManifest(SENSOR_SPEC.id) : Promise.resolve(undefined),
-      config.gripper ? this.fetchCollisionManifest(config.gripper.id) : Promise.resolve(undefined),
-    ];
-
-    const [results, manifestResults] = await Promise.all([
-      Promise.allSettled(tasks),
-      Promise.allSettled(manifestTasks),
-    ]);
-    const loaded = results.flatMap(result => (result.status === 'fulfilled' ? [result.value] : []));
-    const hasRejection =
-      results.some(result => result.status === 'rejected') ||
-      manifestResults.some(result => result.status === 'rejected');
-    if (token !== this.accessoryToken || hasRejection) {
-      this.railMounted = false;
-      loaded.forEach(disposeObject);
+    let data: PreparedAccessoryData;
+    try {
+      data = await prepared.take();
+    } catch (error) {
       if (token !== this.accessoryToken) return false;
-      const failure =
-        results.find(result => result.status === 'rejected') ??
-        manifestResults.find(result => result.status === 'rejected');
-      throw failure?.status === 'rejected' ? failure.reason : new Error('Unable to load accessories');
+      throw error;
     }
-
-    const railManifest = (manifestResults[0] as PromiseFulfilledResult<CollisionAssetManifest | undefined>).value;
-    const sensorManifest = (manifestResults[1] as PromiseFulfilledResult<CollisionAssetManifest | undefined>).value;
-    const gripperManifest = (manifestResults[2] as PromiseFulfilledResult<CollisionAssetManifest | undefined>).value;
+    if (token !== this.accessoryToken) {
+      releaseAssets(data.leases);
+      return false;
+    }
+    this.accessoryAssets = data.leases;
+    const { leases, railIndex, sensorIndex, gripperStartIndex, gripperNames, manifests } = data;
+    const [railManifest, sensorManifest, gripperManifest] = manifests;
 
     try {
       if (config.rail) {
-        const railScene = (results[railIndex] as PromiseFulfilledResult<THREE.Group>).value;
+        const railScene = leases[railIndex].object;
         const carriage = railScene.getObjectByName('rail_carriage');
         const fixedRail = railScene.getObjectByName('rail_fixed');
         if (!carriage || !fixedRail) {
           throw new Error('Rail model is missing fixed or carriage group');
         }
+        const dragMesh = fixedRail.getObjectByName('part_35');
+        if (!(dragMesh instanceof THREE.Mesh)) throw new Error('Rail model is missing the drag chain mesh');
+        this.railDragGeometry = dragMesh.geometry.clone();
+        dragMesh.geometry = this.railDragGeometry;
         const dragChain = new RailDragChain(fixedRail);
         dragChain.setPosition(config.railMm);
         enableShadows(railScene);
@@ -489,7 +580,7 @@ export class RobotScene {
       }
 
       if (config.sensor) {
-        const sensorScene = (results[sensorIndex] as PromiseFulfilledResult<THREE.Group>).value;
+        const sensorScene = leases[sensorIndex].object;
         enableShadows(sensorScene);
         const sensorMount = new THREE.Group();
         sensorMount.name = 'sensor_flange_mount';
@@ -505,7 +596,7 @@ export class RobotScene {
         const parts = Object.fromEntries(
           gripperNames.map((name, index) => [
             name,
-            (results[gripperStartIndex + index] as PromiseFulfilledResult<THREE.Group>).value,
+            leases[gripperStartIndex + index].object,
           ]),
         );
         const gripper = createGripperModel(config.gripper, parts);
@@ -526,7 +617,6 @@ export class RobotScene {
     } catch (error) {
       this.railMounted = false;
       this.clearCurrentAccessories();
-      loaded.forEach(disposeObject);
       throw error;
     }
 

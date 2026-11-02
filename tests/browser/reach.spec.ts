@@ -92,7 +92,7 @@ test('pending, superseded, missing and failed loads never show a stale radius', 
   const done = new Promise<void>(resolve => { finished = resolve; });
   const gate = new Promise<void>(resolve => { release = resolve; });
   const waiting = new Promise<void>(resolve => { intercepted = resolve; });
-  await page.route('**/models/gripper-g2/base.glb', async route => {
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', async route => {
     intercepted();
     await gate;
     try { await route.abort(); } finally { finished(); }
@@ -106,7 +106,7 @@ test('pending, superseded, missing and failed loads never show a stale radius', 
     await checkRing(page, getRadius('xarm6', false, 'bio-gripper-g2'));
   } finally { release(); }
   await done;
-  await page.unroute('**/models/gripper-g2/base.glb');
+  await page.unroute('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin');
   await page.waitForTimeout(300);
   await checkRing(page, getRadius('xarm6', false, 'bio-gripper-g2'));
 
@@ -118,11 +118,11 @@ test('pending, superseded, missing and failed loads never show a stale radius', 
   await ready(page);
   await checkRing(page, getRadius('xarm6'));
 
-  await page.route('**/models/gripper-g2/base.glb', route => route.fulfill({ status: 503, body: 'unavailable' }));
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', route => route.fulfill({ status: 503, body: 'unavailable' }));
   await selectGripper(page, 'gripper-g2');
   await expect(page.locator('#retry')).toBeVisible();
   expect((await snapshot(page)).visible).toBe(false);
-  await page.unroute('**/models/gripper-g2/base.glb');
+  await page.unroute('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin');
   await page.locator('#retry').click();
   await ready(page);
   await checkRing(page, getRadius('xarm6', false, 'gripper-g2'));

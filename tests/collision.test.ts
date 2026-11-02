@@ -36,6 +36,7 @@ import {
   CollisionDetector,
   DEFAULT_PENETRATION_TOLERANCE_M,
   DragChainCollider,
+  formatCollisionBodyName,
   intersectsGJK,
   PolytopeShape,
   shouldExcludeCollisionPair,
@@ -740,5 +741,16 @@ describe('CollisionHighlighter subtree isolation & material lifecycle', () => {
     expect(link2Mesh.material).toBe(sharedMat);
     expect(link3Mesh.material).toBe(sharedMat);
     expect(highlighter.getHighlightedBodies()).toEqual([]);
+  });
+
+  it('formats the terminal arm link as End flange / 末端法兰 across 5/6/7-DoF arms', () => {
+    expect(formatCollisionBodyName('arm:link5', 'zh', null, 5)).toBe('末端法兰');
+    expect(formatCollisionBodyName('arm:link5', 'en', null, 5)).toBe('End flange');
+    expect(formatCollisionBodyName('arm:link5', 'zh', null, 6)).toBe('连杆5');
+    expect(formatCollisionBodyName('arm:link6', 'zh', null, 6)).toBe('末端法兰');
+    expect(formatCollisionBodyName('arm:link6', 'en', null, 6)).toBe('End flange');
+    expect(formatCollisionBodyName('arm:link6', 'en', null, 7)).toBe('Link 6');
+    expect(formatCollisionBodyName('arm:link7', 'zh', null, 7)).toBe('末端法兰');
+    expect(formatCollisionBodyName('arm:link7', 'en', null, 7)).toBe('End flange');
   });
 });

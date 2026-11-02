@@ -12,6 +12,7 @@ import {
   ROBOT_MOUNT_CAD_ROTATION,
 } from '../src/accessories';
 import {
+  formatJointLimitMessage,
   forward,
   fromRPY,
   HOME,
@@ -26,6 +27,7 @@ import {
   stepBasePose,
   toRPY,
   type CartesianAxis,
+  type RPY,
 } from '../src/kinematics';
 import { DEFAULT_ROBOT_ID, getRobotSpec, ROBOTS, type RobotId, type RobotSpec } from '../src/robots';
 import fixtures from './mujoco-fk.json';
@@ -271,5 +273,75 @@ describe('joint speed mapping', () => {
     expect(jointVelocity(50)).toBeCloseTo(1 + 49 * 44 / 99, 10);
     expect(jointVelocity(-20)).toBe(1);
     expect(jointVelocity(120)).toBe(45);
+  });
+});
+
+describe('UF850 Pitch multi-hold continuity, J5 singularity transit, and C23 joint limit notice', () => {
+  it('transits UF850 Pitch across 90° and J5 = 0° without J4/J6 180° flipping or Roll/Yaw drift', () => {
+    const spec = getRobotSpec('uf850');
+    const model = loadRobotModel(spec);
+    const solver = new IKSolver(model, spec.eeLink);
+    let tcpRpy: RPY = toRPY(forward(model, spec.eeLink).quaternion);
+
+    // 1. Repeated Pitch+ holds from 0° across 90° to 110°
+    for (let hold = 0; hold < 22; hold++) {
+      for (let frame = 0; frame < 5; frame++) {
+        const current = forward(model, spec.eeLink);
+        const nextRpy: RPY = [tcpRpy[0], tcpRpy[1] + MathUtils.degToRad(1), tcpRpy[2]];
+        const target = stepBasePose(current, 'pitch', 1, tcpRpy);
+        const prevJ = jointValues(model);
+        expect(solver.solve(target).ok).toBe(true);
+        const curJ = jointValues(model);
+        expect(Math.abs(curJ[3] - prevJ[3])).toBeLessThan(0.05);
+        expect(Math.abs(curJ[5] - prevJ[5])).toBeLessThan(0.05);
+        tcpRpy = toRPY(forward(model, spec.eeLink).quaternion, nextRpy);
+        tcpRpy[1] = nextRpy[1];
+      }
+    }
+    expect(MathUtils.radToDeg(tcpRpy[1])).toBeCloseTo(110, 2);
+    expect(Math.abs(MathUtils.radToDeg(tcpRpy[0]) - 180)).toBeLessThan(0.1);
+    expect(Math.abs(MathUtils.radToDeg(tcpRpy[2]))).toBeLessThan(0.1);
+
+    // 2. Pitch- back across 90° and across J5 = 0° to -15° without J4/J6 flipping or J5 sign bounce
+    for (let step = 0; step < 125; step++) {
+      const current = forward(model, spec.eeLink);
+      const nextRpy: RPY = [tcpRpy[0], tcpRpy[1] - MathUtils.degToRad(1), tcpRpy[2]];
+      const target = stepBasePose(current, 'pitch', -1, tcpRpy);
+      const prevJ = jointValues(model);
+      expect(solver.solve(target).ok).toBe(true);
+      const curJ = jointValues(model);
+      expect(Math.abs(curJ[3] - prevJ[3])).toBeLessThan(0.05);
+      expect(Math.abs(curJ[5] - prevJ[5])).toBeLessThan(0.05);
+      expect(curJ[4] - prevJ[4]).toBeGreaterThan(0);
+      tcpRpy = toRPY(forward(model, spec.eeLink).quaternion, nextRpy);
+      tcpRpy[1] = nextRpy[1];
+    }
+    expect(jointValues(model)[4]).toBeGreaterThan(0.2);
+  });
+
+  it('detects Cartesian IK solutions that exceed joint limits and formats the C23 notice string', () => {
+    const spec = getRobotSpec('uf850');
+    const model = loadRobotModel(spec);
+    const solver = new IKSolver(model, spec.eeLink);
+
+    // Bend J5 to -30° (non-singular wrist) and set J6 near its +360° upper limit, then step Roll+
+    const nearJ6Max = homeJoints(spec.dof);
+    nearJ6Max[4] = MathUtils.degToRad(-30);
+    nearJ6Max[5] = MathUtils.degToRad(359.5);
+    expect(setJoints(model, nearJ6Max)).toBe(true);
+
+    const startPose = forward(model, spec.eeLink);
+    const target = stepBasePose(startPose, 'roll', -1, toRPY(startPose.quaternion));
+    const result = solver.solve(target);
+
+    expect(result.ok).toBe(false);
+    expect(result.reason).toBe('joint_limit');
+    expect(result.exceededJointId).toBe(6);
+    expect(result.exceededAngleDeg).toBeGreaterThan(360);
+    expect(formatJointLimitMessage(result.exceededJointId!, result.exceededAngleDeg!)).toBe(
+      `C23 Joints Angle Exceed Limit ID [6], joint angle [${result.exceededAngleDeg!.toFixed(2)}°].`,
+    );
+    // Robot joints must remain unchanged after the rejected step
+    expect(jointValues(model)[5]).toBeCloseTo(nearJ6Max[5], 6);
   });
 });

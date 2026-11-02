@@ -263,7 +263,7 @@ test('superseded gripper loads and failed resources are handled with retry', asy
   let requested!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const intercepted = new Promise<void>(resolve => { requested = resolve; });
-  await page.route('**/models/gripper-g2/base.glb', async route => { requested(); await gate; await route.abort(); });
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', async route => { requested(); await gate; await route.abort(); });
   await page.goto('/');
   await ready(page);
   await selectGripper(page, 'gripper-g2');
@@ -281,12 +281,13 @@ test('superseded gripper loads and failed resources are handled with retry', asy
   await expect(page.locator('#load-message')).toBeHidden();
   await selectGripper(page, '');
   await ready(page);
+  await page.unroute('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin');
   let attempts = 0;
-  await page.route('**/models/bio-gripper-g2/bio_gripper_g2_base.glb', route => {
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', route => {
     attempts++;
     return attempts === 1 ? route.abort() : route.continue();
   });
-  await selectGripper(page, 'bio-gripper-g2');
+  await selectGripper(page, 'gripper-g2');
   await expect(page.locator('#load-message')).toContainText('模型加载失败');
   await expect(page.locator('#assets a')).toHaveCount(0);
   await page.locator('#retry').click();
@@ -297,7 +298,7 @@ test('superseded gripper loads and failed resources are handled with retry', asy
 
 test('keyboard selection and legacy-link retry retain the mounted opening', async ({ page }) => {
   let attempts = 0;
-  await page.route('**/models/gripper-g2/base.glb', route => ++attempts === 1 ? route.abort() : route.continue());
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', route => ++attempts === 1 ? route.abort() : route.continue());
   await page.goto('/?model=gripper-g2&opening=42');
   await expect(page.locator('#load-message')).toContainText('模型加载失败');
   await page.locator('#retry').focus();

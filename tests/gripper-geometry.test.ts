@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, it } from 'vitest';
-import { Box3, Mesh, Quaternion, Vector3 } from 'three';
+import { Box3, Mesh, MeshStandardMaterial, Quaternion, Vector3 } from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { createGripperModel, gripperPartNames } from '../src/gripper-model';
 import { getGripper } from '../src/grippers';
@@ -26,10 +26,25 @@ it('moves G2 actual GLB pad faces and parallel links at closed, middle and full 
     expect(parts.left_inner_knuckle.parent!.rotation.x).toBeCloseTo(parts.left_outer_knuckle.parent!.rotation.x, 12);
     expect(parts.right_inner_knuckle.parent!.rotation.x).toBeCloseTo(parts.right_outer_knuckle.parent!.rotation.x, 12);
   }
+  // Verify base flange X/Y centering (75.000 x 109.559 mm) and anodized aluminum flange material.
+  const baseBounds = new Box3().setFromObject(parts.base);
+  expect(baseBounds.min.x).toBeCloseTo(-0.0375, 5);
+  expect(baseBounds.max.x).toBeCloseTo(0.0375, 5);
+  expect(baseBounds.min.y).toBeCloseTo(-0.0547795, 5);
+  expect(baseBounds.max.y).toBeCloseTo(0.0547795, 5);
+
   // Locate an actual mounting-face vertex; the locating boss itself extends below the flange.
   let faceVertex = false;
+  let hasAnodizedFlange = false;
+  let hasWhiteHousing = false;
   parts.base.traverse(object => {
     if (!(object instanceof Mesh)) return;
+    const mat = object.material as MeshStandardMaterial;
+    if (Math.abs(mat.metalness - 0.8) < 1e-3 && Math.abs(mat.roughness - 0.640131) < 1e-3) {
+      hasAnodizedFlange = true;
+    } else if (mat.metalness === 0 && mat.roughness === 0.5) {
+      hasWhiteHousing = true;
+    }
     const vertices = object.geometry.getAttribute('position');
     const point = new Vector3();
     for (let i = 0; i < vertices.count; i++) {
@@ -38,6 +53,8 @@ it('moves G2 actual GLB pad faces and parallel links at closed, middle and full 
     }
   });
   expect(faceVertex).toBe(true);
+  expect(hasAnodizedFlange).toBe(true);
+  expect(hasWhiteHousing).toBe(true);
   expect(model.setOpening(-0.1)).toBe(false);
   const before = new Box3().setFromObject(parts.left_finger).min.y;
   expect(model.setOpening(NaN)).toBe(false);

@@ -1,4 +1,6 @@
 import { Matrix4, Object3D, Vector3 } from 'three';
+import { SENSOR_SPEC } from './accessories';
+import type { GripperSpec } from './grippers';
 
 export type CollisionBodyId =
   | `arm:${string}`
@@ -1079,4 +1081,31 @@ export class CollisionDetector {
 
     return collisions;
   }
+}
+
+export function formatCollisionBodyName(
+  id: CollisionBodyId,
+  lang: 'zh' | 'en',
+  gripper?: GripperSpec | null,
+  armDof = 6,
+): string {
+  if (id === 'arm:link_base') return lang === 'zh' ? '基座' : 'Base';
+  if (id === `arm:link${armDof}`) return lang === 'zh' ? '末端法兰' : 'End flange';
+  if (id.startsWith('arm:link')) {
+    const index = id.slice('arm:link'.length);
+    return lang === 'zh' ? `连杆${index}` : `Link ${index}`;
+  }
+  if (id === 'sensor:ai1500') return SENSOR_SPEC.name[lang];
+  if (id === 'rail:fixed') return lang === 'zh' ? '直线滑轨导轨' : 'Linear motor rail';
+  if (id === 'rail:carriage') return lang === 'zh' ? '直线滑轨滑块' : 'Linear motor carriage';
+  if (id === 'rail:drag_chain') return lang === 'zh' ? '直线滑轨拖链' : 'Linear motor drag chain';
+
+  const gName = gripper?.name ?? (lang === 'zh' ? '夹爪' : 'Gripper');
+  if (id === 'gripper:base') {
+    if (gripper?.id === 'lite6-vacuum-gripper') return gName;
+    return lang === 'zh' ? `${gName} 基座` : `${gName} base`;
+  }
+  if (id === 'gripper:left') return lang === 'zh' ? `${gName} 左指` : `${gName} left finger`;
+  if (id === 'gripper:right') return lang === 'zh' ? `${gName} 右指` : `${gName} right finger`;
+  return id;
 }

@@ -216,11 +216,11 @@ test('page navigation preserves robot and example state, including history and u
 
 test('model loading can be retried and the bilingual narrow layout remains usable', async ({ page }) => {
   await page.setViewportSize({ width: 320, height: 740 });
-  await page.route('**/models/gripper-g2/base.glb', route => route.abort());
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', route => route.abort());
   await page.goto('/?example=packing-01');
   await expect(page.locator('#packing-stage')).toHaveAttribute('data-status', 'error', { timeout: 60_000 });
   await expect(page.locator('#packing-error')).toContainText('加载失败');
-  await page.unroute('**/models/gripper-g2/base.glb');
+  await page.unroute('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin');
   await page.locator('#packing-play').click();
   await expect(page.locator('#packing-stage')).toHaveAttribute('data-status', 'running', { timeout: 60_000 });
   await expect(page.locator('#packing-canvas canvas')).toHaveCount(1);

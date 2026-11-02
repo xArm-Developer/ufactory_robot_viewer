@@ -56,7 +56,7 @@ test('a superseded accessory load cannot save a partial or obsolete scene', asyn
   let intercepted!: () => void;
   const gate = new Promise<void>(resolve => { release = resolve; });
   const waiting = new Promise<void>(resolve => { intercepted = resolve; });
-  await page.route('**/models/gripper-g2/base.glb', async route => { intercepted(); await gate; await route.abort(); });
+  await page.route('**/optimized-models/models/gripper-g2/base.*.glb.gz.bin', async route => { intercepted(); await gate; await route.abort(); });
   await selectGripper(page, 'gripper-g2');
   await waiting;
   expect((await saved(page)).gripper).toBeNull();

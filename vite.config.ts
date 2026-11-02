@@ -1,7 +1,9 @@
 import { defineConfig } from 'vite';
+import { modelAssetsPlugin } from './scripts/model-assets';
 
 export default defineConfig({
   base: './',
+  plugins: [modelAssetsPlugin()],
   optimizeDeps: {
     include: [
       'three',
