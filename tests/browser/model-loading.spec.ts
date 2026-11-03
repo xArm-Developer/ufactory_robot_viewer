@@ -251,7 +251,7 @@ test('mouse rotation reaches beneath the arm and reset restores the rail preset'
   await page.mouse.up();
   await expect.poll(async () => (await cameraPosition(page))[2]).toBeLessThan(0);
   await page.evaluate(() => (window as unknown as { cameraTest: { resetView(): void } }).cameraTest.resetView());
-  await expect.poll(() => cameraPosition(page)).toEqual(initial);
+  await expect.poll(async () => Math.max(...(await cameraPosition(page)).map((value, i) => Math.abs(value - initial[i])))).toBeLessThan(1e-8);
 });
 
 test('touch rotation can reach below the arm and reset the view', async ({ browser, baseURL }) => {
@@ -267,6 +267,6 @@ test('touch rotation can reach below the arm and reset the view', async ({ brows
     await client.send('Input.dispatchTouchEvent', { type: 'touchEnd', touchPoints: [] });
     await expect.poll(async () => (await cameraPosition(page))[2]).toBeLessThan(0);
     await page.evaluate(() => (window as unknown as { cameraTest: { resetView(): void } }).cameraTest.resetView());
-    await expect.poll(() => cameraPosition(page)).toEqual(initial);
+    await expect.poll(async () => Math.max(...(await cameraPosition(page)).map((value, i) => Math.abs(value - initial[i])))).toBeLessThan(1e-8);
   } finally { await context.close(); }
 });

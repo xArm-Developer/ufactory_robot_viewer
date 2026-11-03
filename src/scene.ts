@@ -121,27 +121,98 @@ function adjustLite6Materials(robot: URDFRobot, ownedMaterials: Set<THREE.Materi
   }
 }
 
+/** The Lite 6 and 850 source meshes combine plastic inserts and metal in one mesh. */
+function maskConnectorPlastic(material: THREE.MeshStandardMaterial, model: 'lite6' | 'uf850'): void {
+  // The 850 sockets share a 30-degree axis; their inserts sit at different
+  // depths. Restrict the mask to the faces so the flange and contacts stay metal.
+  const region = model === 'lite6'
+    ? `float radius = length(vConnectorPosition.xz - vec2(0.0000764, -0.008998));
+       float connectorPlastic = step(0.0458, vConnectorPosition.y) * (1.0 - smoothstep(0.0038, 0.0044, radius));`
+    : `float tangent = dot(vConnectorPosition.xy, vec2(0.8660254, 0.5));
+       float depth = dot(vConnectorPosition.xy, vec2(0.5, -0.8660254));
+       float largeRadius = length(vec2(tangent + 0.00845, vConnectorPosition.z + 0.0185));
+       float smallRadius = length(vec2(tangent - 0.0099, vConnectorPosition.z + 0.0183));
+       float largeInsert = step(0.0458, depth) * (1.0 - smoothstep(0.00435, 0.0045, largeRadius));
+       float smallInsert = step(0.0395, depth) * (1.0 - smoothstep(0.0031, 0.00325, smallRadius));
+       float connectorPlastic = max(largeInsert, smallInsert);`;
+
+  material.onBeforeCompile = shader => {
+    shader.uniforms.connectorPlasticColor = { value: new THREE.Color(0x191d20) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvConnectorPosition = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;\nuniform vec3 connectorPlasticColor;')
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${region}\n  diffuseColor.rgb = mix(diffuseColor.rgb, connectorPlasticColor, connectorPlastic);`)
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.7, connectorPlastic);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.0, connectorPlastic);');
+  };
+  material.customProgramCacheKey = () => `${model}-connector-plastic-v2`;
+}
+
+/** Add visible socket contacts to the otherwise featureless xArm insert surface. */
+function shadeXarmSocketContacts(material: THREE.MeshStandardMaterial, model: 'xarm5' | 'xarm6' | 'xarm7'): void {
+  // The 12-contact arrangement follows the xArm manual and the 850 connector
+  // mesh; these are surface details, not changes to the source geometry.
+  const centers = {
+    xarm5: [-0.001224, -0.054155, -0.017983],
+    xarm6: [-0.000248, -0.053931, -0.017979],
+    xarm7: [-0.000317, -0.054131, -0.018046],
+  } as const;
+  material.onBeforeCompile = shader => {
+    shader.uniforms.connectorCenter = { value: new THREE.Vector3(...centers[model]) };
+    shader.uniforms.connectorContactColor = { value: new THREE.Color(0x8a8f95) };
+    shader.vertexShader = shader.vertexShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvConnectorPosition = position;');
+    shader.fragmentShader = shader.fragmentShader
+      .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;\nuniform vec3 connectorCenter;\nuniform vec3 connectorContactColor;')
+      .replace('#include <color_fragment>', `#include <color_fragment>
+        vec2 p = (vConnectorPosition.xz - connectorCenter.xz) / 1.15;
+        float d = length(p - vec2(-0.00140,  0.00266));
+        d = min(d, length(p - vec2(-0.00134, -0.00265)));
+        d = min(d, length(p - vec2(-0.00279,  0.00147)));
+        d = min(d, length(p - vec2( 0.00210, -0.00171)));
+        d = min(d, length(p - vec2( 0.00207,  0.00184)));
+        d = min(d, length(p - vec2( 0.00273,  0.00000)));
+        d = min(d, length(p - vec2(-0.00275, -0.00140)));
+        d = min(d, length(p - vec2(-0.00134,  0.00000)));
+        d = min(d, length(p - vec2( 0.00039,  0.00101)));
+        d = min(d, length(p - vec2( 0.00043, -0.00090)));
+        d = min(d, length(p - vec2( 0.00058, -0.00274)));
+        d = min(d, length(p - vec2( 0.00051,  0.00282)));
+        float face = 1.0 - step(connectorCenter.y + 0.0002, vConnectorPosition.y);
+        float outer = (1.0 - smoothstep(0.00032, 0.00038, d)) * face;
+        float bore = (1.0 - smoothstep(0.00015, 0.00020, d)) * face;
+        float contactMetal = max(0.0, outer - bore);
+        diffuseColor.rgb = mix(diffuseColor.rgb, connectorContactColor, contactMetal);
+        diffuseColor.rgb = mix(diffuseColor.rgb, vec3(0.0003), bore);`)
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.65, contactMetal);');
+  };
+  material.customProgramCacheKey = () => 'xarm-socket-contacts-v1';
+}
+
 /** Keep connector finishes local to this arm instance; GLB cache materials are shared. */
 function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMaterials: Set<THREE.Material>): void {
-  const parts: Record<string, { link: string; finishes: Record<string, { color: number; metalness: number; roughness: number; liteFace?: boolean }> }> = {
+  type Finish = { color?: number; metalness?: number; roughness?: number; plastic?: 'lite6' | 'uf850'; xarm?: 'xarm5' | 'xarm6' | 'xarm7' };
+  const shell: Finish = { color: 0xc6c9cc, metalness: 0.65, roughness: 0.4 };
+  const socket: Finish = { color: 0x191d20, metalness: 0, roughness: 0.7 };
+  const parts: Record<string, { link: string; finishes: Record<string, Finish> }> = {
     xarm5: { link: 'link5', finishes: {
-      part_0: { color: 0x191d20, metalness: 0.05, roughness: 0.7 },
-      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
-      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_0: { ...socket, xarm: 'xarm5' }, part_1: shell, part_2: shell,
     } },
     xarm6: { link: 'link6', finishes: {
-      part_0: { color: 0x191d20, metalness: 0.05, roughness: 0.7 },
-      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
-      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_0: { ...socket, xarm: 'xarm6' }, part_1: shell, part_2: shell,
     } },
     xarm7: { link: 'link7', finishes: {
-      part_0: { color: 0x191d20, metalness: 0.05, roughness: 0.7 },
-      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
-      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_0: { ...socket, xarm: 'xarm7' }, part_1: shell, part_2: shell,
+    } },
+    uf850: { link: 'link6', finishes: {
+      part_0: { plastic: 'uf850' },
     } },
     lite6: { link: 'link6', finishes: {
-      part_1: { color: 0x92979c, metalness: 0.8, roughness: 0.42, liteFace: true },
-      part_2: { color: 0x92979c, metalness: 0.8, roughness: 0.42 },
+      part_1: { ...shell, plastic: 'lite6' },
+      part_2: shell,
     } },
   };
   const target = parts[robotId];
@@ -158,25 +229,11 @@ function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMateri
         const material = original.clone();
         ownedMaterials.add(material);
         if (material instanceof THREE.MeshStandardMaterial) {
-          material.color.setHex(finish.color);
-          material.metalness = finish.metalness;
-          material.roughness = finish.roughness;
-          if (finish.liteFace) {
-            // The Lite 6 GLB combines the insert and shell in one mesh. The insert is
-            // the circular front face at local Y = 46 mm, centred at X/Z below.
-            material.onBeforeCompile = shader => {
-              shader.vertexShader = shader.vertexShader
-                .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
-                .replace('#include <begin_vertex>', '#include <begin_vertex>\nvConnectorPosition = position;');
-              shader.fragmentShader = shader.fragmentShader
-                .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
-                .replace('#include <color_fragment>', `#include <color_fragment>
-                  float connectorRadius = length(vConnectorPosition.xz - vec2(0.0000764, -0.008998));
-                  float connectorFace = step(0.0458, vConnectorPosition.y) * (1.0 - smoothstep(0.0038, 0.0044, connectorRadius));
-                  diffuseColor.rgb *= mix(1.0, 0.025, connectorFace);`);
-            };
-            material.customProgramCacheKey = () => 'lite6-connector-face-v1';
-          }
+          if (finish.color !== undefined) material.color.setHex(finish.color);
+          if (finish.metalness !== undefined) material.metalness = finish.metalness;
+          if (finish.roughness !== undefined) material.roughness = finish.roughness;
+          if (finish.plastic) maskConnectorPlastic(material, finish.plastic);
+          if (finish.xarm) shadeXarmSocketContacts(material, finish.xarm);
         }
         return material;
       });
