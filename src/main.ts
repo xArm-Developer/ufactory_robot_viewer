@@ -2071,11 +2071,6 @@ async function start() {
   }
 
   await loadSelection(true);
-  if ('requestIdleCallback' in window) {
-    window.requestIdleCallback(() => void preloadPacking(), { timeout: 3000 });
-  } else {
-    setTimeout(() => void preloadPacking(), 1500);
-  }
 }
 if (initialParams.has('example') && page === 'robot') {
   const url = new URL(window.location.href);

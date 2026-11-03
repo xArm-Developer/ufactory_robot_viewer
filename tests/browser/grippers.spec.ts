@@ -333,9 +333,28 @@ test('BIO visual pad faces match the commanded gap and remain symmetric', async 
     const scenes = await Promise.all(names.map(name => loader.loadAsync(`/models/bio-gripper-g2/${name}.glb`)));
     const parts = Object.fromEntries(names.map((name, index) => [name, scenes[index].scene]));
     const model = createGripperModel(getGripper('bio-gripper-g2'), parts);
-    return [71, 110, 150].map(opening => {
+    let baseMinY = Infinity;
+    let baseMaxY = -Infinity;
+    let padMinX = Infinity;
+    let padMaxX = -Infinity;
+    let padMinZ = Infinity;
+    let padMaxZ = -Infinity;
+    const openings = [71, 110, 150].map(opening => {
       model.setOpening(opening);
       model.root.updateMatrixWorld(true);
+      if (opening === 71) {
+        parts.bio_gripper_g2_base.traverse((mesh: any) => {
+          if (!mesh.isMesh) return;
+          const positions = mesh.geometry.getAttribute('position');
+          const point = model.root.position.clone();
+          for (let i = 0; i < positions.count; i++) {
+            point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
+            model.root.worldToLocal(point);
+            baseMinY = Math.min(baseMinY, point.y * 1000);
+            baseMaxY = Math.max(baseMaxY, point.y * 1000);
+          }
+        });
+      }
       const inner = (part: any, left: boolean) => {
         let limit = left ? -Infinity : Infinity;
         part.traverse((mesh: any) => {
@@ -346,7 +365,15 @@ test('BIO visual pad faces match the commanded gap and remain symmetric', async 
             point.fromBufferAttribute(positions, i).applyMatrix4(mesh.matrixWorld);
             model.root.worldToLocal(point);
             // The reference URDF identifies the gripping surface at X > 31 mm in the finger frame.
-            if (point.x > 0.059 + 0.031) limit = left ? Math.max(limit, point.y) : Math.min(limit, point.y);
+            if (point.x > 0.081475 + 0.031) {
+              limit = left ? Math.max(limit, point.y) : Math.min(limit, point.y);
+              if (opening === 71 && left && point.z > 0.05 && point.y > -0.036) {
+                padMinX = Math.min(padMinX, point.x * 1000);
+                padMaxX = Math.max(padMaxX, point.x * 1000);
+                padMinZ = Math.min(padMinZ, point.z * 1000);
+                padMaxZ = Math.max(padMaxZ, point.z * 1000);
+              }
+            }
           }
         });
         return limit * 1000;
@@ -355,8 +382,16 @@ test('BIO visual pad faces match the commanded gap and remain symmetric', async 
       const right = inner(parts.bio_gripper_g2_right_finger, false);
       return { opening, left, right, gap: right - left };
     });
+    return { openings, baseCenterY: (baseMinY + baseMaxY) / 2, padMinX, padMaxX, padMinZ, padMaxZ, padMidX: (padMinX + padMaxX) / 2, padMidZ: (padMinZ + padMaxZ) / 2 };
   });
-  for (const { opening, left, right, gap } of measurements) {
+  expect(Math.abs(measurements.baseCenterY)).toBeLessThan(0.01);
+  expect(measurements.padMinX).toBeLessThan(135);
+  expect(measurements.padMaxX).toBeGreaterThan(135);
+  expect(measurements.padMinZ).toBeLessThan(55);
+  expect(measurements.padMaxZ).toBeGreaterThan(55);
+  expect(Math.abs(measurements.padMidX - 135)).toBeLessThan(1.5);
+  expect(Math.abs(measurements.padMidZ - 55)).toBeLessThan(2.0);
+  for (const { opening, left, right, gap } of measurements.openings) {
     expect(Math.abs(gap - opening)).toBeLessThan(0.02);
     expect(Math.abs(left + right)).toBeLessThan(0.02);
   }

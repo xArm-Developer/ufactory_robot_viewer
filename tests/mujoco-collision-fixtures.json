@@ -766,7 +766,7 @@
         0.0
       ],
       "collides": false,
-      "minDistMm": 22.651,
+      "minDistMm": 22.101,
       "pairs": [],
       "robotId": "xarm5",
       "gripperId": "bio-gripper-g2",
@@ -775,11 +775,11 @@
     {
       "label": "xarm5_bio_g2_safe",
       "joints": [
-        -4.082342,
-        1.236961,
-        -2.195327,
-        2.822165,
-        1.050302
+        -4.050233,
+        1.227232,
+        -2.17806,
+        2.799968,
+        1.042041
       ],
       "collides": false,
       "minDistMm": 2.423,
@@ -791,14 +791,14 @@
     {
       "label": "xarm5_bio_g2_colliding",
       "joints": [
-        -4.138948,
-        1.254113,
-        -2.225768,
-        2.861298,
-        1.064866
+        -4.106839,
+        1.244384,
+        -2.2085,
+        2.8391,
+        1.056605
       ],
       "collides": true,
-      "minDistMm": -2.348,
+      "minDistMm": -2.331,
       "pairs": [
         [
           "arm:link3",
@@ -820,7 +820,7 @@
         0.0
       ],
       "collides": false,
-      "minDistMm": 23.193,
+      "minDistMm": 22.063,
       "pairs": [],
       "robotId": "xarm6",
       "gripperId": "bio-gripper-g2",
@@ -829,15 +829,15 @@
     {
       "label": "xarm6_bio_g2_safe",
       "joints": [
-        -2.204904,
-        -0.150334,
-        -1.323658,
-        0.48107,
-        2.233539,
-        2.632999
+        -2.2164,
+        -0.151118,
+        -1.33056,
+        0.483578,
+        2.245185,
+        2.646728
       ],
       "collides": false,
-      "minDistMm": 2.882,
+      "minDistMm": 2.508,
       "pairs": [],
       "robotId": "xarm6",
       "gripperId": "bio-gripper-g2",
@@ -846,15 +846,15 @@
     {
       "label": "xarm6_bio_g2_colliding",
       "joints": [
-        -2.235977,
-        -0.152453,
-        -1.342312,
-        0.48785,
-        2.265016,
-        2.670105
+        -2.251912,
+        -0.153539,
+        -1.351879,
+        0.491326,
+        2.281158,
+        2.689134
       ],
       "collides": true,
-      "minDistMm": -3.954,
+      "minDistMm": -4.67,
       "pairs": [
         [
           "arm:link3",
@@ -881,7 +881,7 @@
         0.0
       ],
       "collides": false,
-      "minDistMm": 23.041,
+      "minDistMm": 22.063,
       "pairs": [],
       "robotId": "xarm7",
       "gripperId": "bio-gripper-g2",
@@ -890,16 +890,16 @@
     {
       "label": "xarm7_bio_g2_safe",
       "joints": [
-        0.041236,
-        0.173625,
-        4.504857,
-        2.223129,
-        1.110479,
-        2.233981,
-        -2.588466
+        0.041508,
+        0.174772,
+        4.534594,
+        2.237804,
+        1.11781,
+        2.248727,
+        -2.605553
       ],
       "collides": false,
-      "minDistMm": 2.688,
+      "minDistMm": 2.478,
       "pairs": [],
       "robotId": "xarm7",
       "gripperId": "bio-gripper-g2",
@@ -908,16 +908,16 @@
     {
       "label": "xarm7_bio_g2_colliding",
       "joints": [
-        0.04176,
-        0.175832,
-        4.562108,
-        2.251382,
-        1.124592,
-        2.262372,
-        -2.621362
+        0.042207,
+        0.177714,
+        4.610929,
+        2.275475,
+        1.136627,
+        2.286582,
+        -2.649414
       ],
       "collides": true,
-      "minDistMm": -3.627,
+      "minDistMm": -5.726,
       "pairs": [
         [
           "arm:link4",
@@ -943,7 +943,7 @@
         0.0
       ],
       "collides": false,
-      "minDistMm": 21.481,
+      "minDistMm": 20.784,
       "pairs": [],
       "robotId": "uf850",
       "gripperId": "bio-gripper-g2",
@@ -952,15 +952,15 @@
     {
       "label": "uf850_bio_g2_safe",
       "joints": [
-        1.800884,
-        1.484416,
-        -0.1297,
-        2.795683,
-        0.777551,
-        -0.855371
+        1.801167,
+        1.484649,
+        -0.12972,
+        2.796121,
+        0.777673,
+        -0.855505
       ],
       "collides": false,
-      "minDistMm": 2.021,
+      "minDistMm": 2.025,
       "pairs": [],
       "robotId": "uf850",
       "gripperId": "bio-gripper-g2",
@@ -969,15 +969,15 @@
     {
       "label": "uf850_bio_g2_colliding",
       "joints": [
-        1.825549,
-        1.504747,
-        -0.131476,
-        2.833973,
-        0.788201,
-        -0.867086
+        1.825831,
+        1.504979,
+        -0.131497,
+        2.834411,
+        0.788323,
+        -0.867221
       ],
       "collides": true,
-      "minDistMm": -2.429,
+      "minDistMm": -2.433,
       "pairs": [
         [
           "arm:link2",

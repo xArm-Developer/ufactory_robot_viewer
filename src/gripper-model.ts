@@ -95,9 +95,12 @@ export function createGripperModel(spec: GripperSpec, parts: Record<string, THRE
     return { root, setOpening };
   }
 
-  root.add(part('bio_gripper_g2_base'));
-  const left = pivot(root, [0.059, 0, 0.027]);
-  const right = pivot(root, [0.059, 0, 0.027]);
+  // Restore the BIO Gripper G2 base and finger joints from the shifted GLB frame to the circular flange center (0, 0, 0).
+  const base = part('bio_gripper_g2_base');
+  base.position.set(0.022475, 0.00083, 0);
+  root.add(base);
+  const left = pivot(root, [0.081475, 0, 0.027]);
+  const right = pivot(root, [0.081475, 0, 0.027]);
   const leftMesh = part('bio_gripper_g2_left_finger');
   const rightMesh = part('bio_gripper_g2_right_finger');
   leftMesh.position.y += 0.00695659220219;

@@ -22,6 +22,12 @@ for robot_id in ('xarm5', 'xarm6', 'xarm7', 'uf850'):
     ):
         path = ROOT / 'tests/reference-urdfs' / f'{prefix}_{suffix}'
         robot = ET.parse(path).getroot()
+        for joint in robot.findall('joint'):
+            if joint.attrib.get('name') == 'bio_gripper_g2_attach':
+                origin = joint.find('origin')
+                if origin is not None:
+                    origin.set('xyz', '0 0 0')
+                    origin.set('rpy', '0 0 0')
         for link in robot.findall('link'):
             for element in list(link):
                 if element.tag in ('visual', 'collision'):

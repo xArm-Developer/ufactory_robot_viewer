@@ -410,13 +410,13 @@ describe('zero-pose (HOME) zero-false-positive invariant across all assemblies',
     }
 
     // Conversely, at folded zero-elbow pose on xArm 5 + AL0700 + AI1500 + BIO Gripper G2,
-    // flipping joint5 by 180 deg swings the asymmetric +59 mm BIO fingers backward into rail:carriage.
+    // flipping joint5 by 180 deg with a slight wrist pitch swings the asymmetric BIO fingers into rail:carriage.
     const overhangAssembly = await buildTestAssembly('xarm5', {
       rail: true,
       sensor: true,
       gripperId: 'bio-gripper-g2',
     });
-    setJoints(overhangAssembly.robot, [0, 0, 0, 0, -Math.PI]);
+    setJoints(overhangAssembly.robot, [0, 0, 0, -0.05, -Math.PI]);
     overhangAssembly.root.updateMatrixWorld(true);
     expect(normalizePairs(overhangAssembly.detector.detect())).toContainEqual(['gripper:right', 'rail:carriage']);
   });
