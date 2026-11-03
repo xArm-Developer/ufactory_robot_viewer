@@ -8,7 +8,9 @@ import config from './packing-config.json' with { type: 'json' };
 import { planPackingSegment, stationary, type MotionState, type PackingSegment, type Vec3 } from './packing-trajectory';
 import { getRobotSpec } from './robots';
 import { getGripper } from './grippers';
+import { gripperPartNames } from './gripper-model';
 import { RobotScene } from './scene';
+import { getSharedModelCache, type ModelCache } from './model-cache';
 import type { CollisionBodyId } from './collision';
 
 type Language = 'zh' | 'en';
@@ -201,12 +203,10 @@ export class PackingExample {
   private async load(): Promise<void> {
     const token = ++this.loadingToken;
     try {
-      const [engine, xmlResponse] = await Promise.all([
-        loadMujoco({ locateFile: (path: string) => path.endsWith('.wasm') ? wasmUrl : path }),
-        fetch(new URL(`${import.meta.env.BASE_URL}examples/packing-01/scene.xml`, document.baseURI)),
+      const [engine, xml] = await Promise.all([
+        getMujocoEngine(),
+        getSceneXml(),
       ]);
-      if (!xmlResponse.ok) throw new Error(`Scene HTTP ${xmlResponse.status}`);
-      const xml = await xmlResponse.text();
       if (token !== this.loadingToken) return;
       this.engine = engine;
       this.model = engine.MjModel.from_xml_string(xml);
@@ -218,7 +218,8 @@ export class PackingExample {
         return this.model!.jnt_dofadr[joint] as number;
       });
       this.geomNames = Array.from({ length: this.model.ngeom }, (_, i) => engine.mj_id2name(this.model!, engine.mjtObj.mjOBJ_GEOM.value, i));
-      this.scene = new RobotScene(this.find('#packing-canvas'));
+      const modelCache = getSharedModelCache();
+      this.scene = new RobotScene(this.find('#packing-canvas'), { modelCache });
       this.find<HTMLCanvasElement>('#packing-canvas canvas').addEventListener('webglcontextlost', event => {
         event.preventDefault();
         this.fail('load');
@@ -783,3 +784,54 @@ export class PackingExample {
     this.scene.requestRender();
   }
 }
+
+let cachedEnginePromise: Promise<MainModule> | undefined;
+
+export function getMujocoEngine(): Promise<MainModule> {
+  if (!cachedEnginePromise) {
+    cachedEnginePromise = loadMujoco({
+      locateFile: (path: string) => (path.endsWith('.wasm') ? wasmUrl : path),
+    }).catch(error => {
+      cachedEnginePromise = undefined;
+      throw error;
+    });
+  }
+  return cachedEnginePromise;
+}
+
+let cachedSceneXmlPromise: Promise<string> | undefined;
+
+export function getSceneXml(): Promise<string> {
+  if (!cachedSceneXmlPromise) {
+    const sceneUrl = new URL(`${import.meta.env.BASE_URL}examples/packing-01/scene.xml`, document.baseURI);
+    cachedSceneXmlPromise = fetch(sceneUrl)
+      .then(response => {
+        if (!response.ok) throw new Error(`Scene HTTP ${response.status}`);
+        return response.text();
+      })
+      .catch(error => {
+        cachedSceneXmlPromise = undefined;
+        throw error;
+      });
+  }
+  return cachedSceneXmlPromise;
+}
+
+export async function preloadPackingAssets(cache?: ModelCache): Promise<void> {
+  const modelCache = cache ?? getSharedModelCache();
+  const gripper = getGripper('gripper-g2');
+  const baseUrl = new URL(import.meta.env.BASE_URL, document.baseURI);
+  const gripperTasks = gripper
+    ? gripperPartNames(gripper).map(name => {
+        const url = new URL(`models/${gripper.id}/${name}.glb`, baseUrl).href;
+        return modelCache.acquire(url).then(lease => lease.release()).catch(() => {});
+      })
+    : [];
+
+  await Promise.allSettled([
+    getMujocoEngine().catch(() => {}),
+    getSceneXml().catch(() => {}),
+    ...gripperTasks,
+  ]);
+}
+

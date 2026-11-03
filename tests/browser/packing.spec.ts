@@ -34,7 +34,7 @@ const invoke = (page: Page, name: 'disablePads' | 'collide' | 'highlighted', ind
 }, { name, index });
 
 async function ready(page: Page) {
-  await page.goto('/?example=packing-01');
+  await page.goto('/?example=packing-01', { waitUntil: 'domcontentloaded' });
   await expect(page.locator('#packing-stage')).toHaveAttribute('data-status', 'running', { timeout: 60_000 });
   await expect.poll(() => debug(page)).toBe(true);
   await page.evaluate(() => (window as unknown as { __packingTest: PackingDebug }).__packingTest.reset());
@@ -241,3 +241,34 @@ test('a failed example module offers a reload and can recover', async ({ page })
   await page.locator('.packing-module-failure button').click();
   await expect(page.locator('#packing-stage')).toHaveAttribute('data-status', 'running', { timeout: 60_000 });
 });
+
+test('switching from robot to example resets scroll, shows stage skeleton and never flashes site-footer at the top', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  await page.goto('/');
+  await expect(page.locator('#stage')).toHaveAttribute('data-ready', 'true', { timeout: 60_000 });
+
+  // Scroll down to the inventory section
+  await page.evaluate(() => window.scrollTo(0, 400));
+  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeGreaterThan(200);
+
+  // Click the Examples navigation link
+  await page.locator('#page-examples').click();
+  await expect(page).toHaveURL(/example=packing-01/);
+
+  // Scroll position must immediately reset to top
+  expect(await page.evaluate(() => window.scrollY)).toBe(0);
+
+  // Packing container must not collapse; footer must stay well below the viewport top
+  const packingBox = await page.locator('#packing-page').boundingBox();
+  expect(packingBox).not.toBeNull();
+  expect(packingBox!.height).toBeGreaterThanOrEqual(600);
+
+  const footerBox = await page.locator('#site-footer').boundingBox();
+  expect(footerBox).not.toBeNull();
+  expect(footerBox!.y).toBeGreaterThanOrEqual(600);
+
+  // Eventually reaches running state with 3D canvas active
+  await expect(page.locator('#packing-stage')).toHaveAttribute('data-status', 'running', { timeout: 60_000 });
+  await expect(page.locator('#packing-canvas canvas')).toHaveCount(1);
+});
+

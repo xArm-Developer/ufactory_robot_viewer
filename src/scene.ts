@@ -293,6 +293,11 @@ function createCoordinateFrame(axisLength: number, shaftRadius: number): THREE.G
   return frame;
 }
 
+export interface RobotSceneOptions {
+  modelCache?: ModelCache;
+  draco?: DRACOLoader;
+}
+
 export class RobotScene {
   robot?: URDFRobot;
   private scene = new THREE.Scene();
@@ -301,6 +306,7 @@ export class RobotScene {
   private orbit: OrbitControls;
   private draco: DRACOLoader;
   private modelCache: ModelCache;
+  private readonly sharedCache: boolean;
   private armAssets: ModelLease[] = [];
   private armTemplates = new Map<string, URDFRobot>();
   private accessoryAssets: ModelLease[] = [];
@@ -331,7 +337,7 @@ export class RobotScene {
   private collisionHighlighter = new CollisionHighlighter();
   private collisionManifestCache = new Map<string, CollisionAssetManifest>();
 
-  constructor(private container: HTMLElement) {
+  constructor(private container: HTMLElement, options: RobotSceneOptions = {}) {
     this.robotMount.name = 'robot_mount';
     this.renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true, powerPreference: 'high-performance' });
     this.renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
@@ -343,9 +349,14 @@ export class RobotScene {
     this.renderer.domElement.setAttribute('aria-label', 'Interactive xArm 6 3D model');
     container.appendChild(this.renderer.domElement);
 
-    this.draco = new DRACOLoader();
-    this.draco.setDecoderPath(new URL(`${import.meta.env.BASE_URL}draco/`, document.baseURI).href);
-    this.modelCache = new ModelCache(this.draco);
+    this.sharedCache = Boolean(options.modelCache);
+    if (options.draco) {
+      this.draco = options.draco;
+    } else {
+      this.draco = new DRACOLoader();
+      this.draco.setDecoderPath(new URL(`${import.meta.env.BASE_URL}draco/`, document.baseURI).href);
+    }
+    this.modelCache = options.modelCache ?? new ModelCache(this.draco);
 
     this.camera = new THREE.PerspectiveCamera(36, 1, 0.01, 100);
     this.camera.up.set(0, 0, 1);
@@ -478,9 +489,11 @@ export class RobotScene {
     this.clear();
     this.resizeObserver.disconnect();
     this.orbit.dispose();
-    this.modelCache.dispose();
+    if (!this.sharedCache) {
+      this.modelCache.dispose();
+      this.draco.dispose();
+    }
     this.armTemplates.clear();
-    this.draco.dispose();
     this.armEnvironment.dispose();
     this.connectorEnvironment.dispose();
     this.renderer.dispose();

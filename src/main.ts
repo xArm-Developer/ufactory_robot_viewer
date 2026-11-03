@@ -31,6 +31,7 @@ import { renderAssetInventory, type SceneAsset } from './assets';
 import { formatCollisionBodyName, type CollisionBodyId, type CollisionPair } from './collision';
 import { levelFlange } from './leveling';
 import { RobotScene } from './scene';
+import { getSharedModelCache } from './model-cache';
 import { SiteFooter } from './footer';
 import { SCENE_VERSION, SceneStorage, type SceneSnapshot } from './scene-storage';
 import type { URDFRobot } from 'urdf-loader';
@@ -608,6 +609,46 @@ function updatePageLinks() {
   }
 }
 
+function renderPackingSkeleton(container: HTMLElement, lang: Language): void {
+  if (container.querySelector('.packing-stage')) return;
+  const isZh = lang === 'zh';
+  container.innerHTML = `
+    <div class="packing-experience page-width packing-skeleton">
+      <div class="stage packing-stage" data-status="loading">
+        <div class="canvas-area"></div>
+        <div class="load-message" role="status"><span class="spinner"></span><span>${copy[lang].loading}</span></div>
+        <span class="stage-corner corner-tl"></span><span class="stage-corner corner-br"></span>
+      </div>
+      <aside class="packing-panel">
+        <label>${copy[lang].pageExamples}</label>
+        <select disabled><option>${isZh ? '示例 01：装箱' : 'Example 01: Packing'}</option></select>
+        <p class="packing-subtitle">xArm 6 + Gripper G2</p>
+        <h2>${isZh ? '示例 01：装箱' : 'Example 01: Packing'}</h2>
+        <p class="packing-description">${isZh ? '跟踪运动中的工件，逐件放入箱内。' : 'Track moving parts and place them in the box one at a time.'}</p>
+        <div class="skeleton-line" style="height: 12px; margin-top: 28px; width: 60%;"></div>
+        <div class="skeleton-line" style="height: 7px; margin-top: 12px; width: 100%;"></div>
+        <div class="skeleton-line" style="height: 42px; margin-top: 24px; width: 100%;"></div>
+      </aside>
+    </div>`;
+}
+
+let packingModulePromise: Promise<typeof import('./packing')> | undefined;
+
+function preloadPacking(): Promise<typeof import('./packing')> {
+  if (!packingModulePromise) {
+    packingModulePromise = import('./packing');
+    packingModulePromise
+      .then(mod => {
+        const cache = getSharedModelCache();
+        void mod.preloadPackingAssets(cache);
+      })
+      .catch(() => {
+        packingModulePromise = undefined;
+      });
+  }
+  return packingModulePromise;
+}
+
 function setPage(next: 'robot' | 'example', push = false) {
   if (push && next !== page) {
     const url = new URL(window.location.href);
@@ -617,26 +658,33 @@ function setPage(next: 'robot' | 'example', push = false) {
   }
   if (page !== next) stopJog(false);
   page = next;
+  if (next === 'example') {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    if (!packing) renderPackingSkeleton($('#packing-page'), language);
+  }
   $('#explore').hidden = next !== 'robot';
   $('#assets').hidden = next !== 'robot';
   $('#packing-page').hidden = next !== 'example';
   updatePageLinks();
   packing?.setVisible(next === 'example');
   if (next === 'example' && !packingLoad) {
-    packingLoad = import('./packing').then(({ PackingExample }) => {
-      packing = new PackingExample($('#packing-page'));
-      packing.setLanguage(language);
-      packing.setVisible(page === 'example');
-    }).catch(error => {
-      console.error('Packing module:', error);
-      packingLoad = undefined;
-      const target = $('#packing-page');
-      target.innerHTML = `<div class="packing-experience page-width packing-module-failure"><div class="stage packing-stage"><div class="stage-notices"><div class="stage-notice load-error" role="alert"><span data-t="exampleFailed"></span><button type="button" data-t="retry"></button></div></div></div></div>`;
-      target.querySelector<HTMLElement>('[data-t="exampleFailed"]')!.textContent = copy[language].exampleFailed;
-      const retry = target.querySelector<HTMLButtonElement>('button')!;
-      retry.textContent = copy[language].retry;
-      retry.addEventListener('click', () => location.reload());
-    });
+    packingLoad = preloadPacking()
+      .then(({ PackingExample }) => {
+        packing = new PackingExample($('#packing-page'));
+        packing.setLanguage(language);
+        packing.setVisible(page === 'example');
+      })
+      .catch(error => {
+        console.error('Packing module:', error);
+        packingLoad = undefined;
+        packingModulePromise = undefined;
+        const target = $('#packing-page');
+        target.innerHTML = `<div class="packing-experience page-width packing-module-failure"><div class="stage packing-stage"><div class="stage-notices"><div class="stage-notice load-error" role="alert"><span data-t="exampleFailed"></span><button type="button" data-t="retry"></button></div></div></div></div>`;
+        target.querySelector<HTMLElement>('[data-t="exampleFailed"]')!.textContent = copy[language].exampleFailed;
+        const retry = target.querySelector<HTMLButtonElement>('button')!;
+        retry.textContent = copy[language].retry;
+        retry.addEventListener('click', () => location.reload());
+      });
   }
   renderSceneCopy();
 }
@@ -651,6 +699,8 @@ $('#page-examples').addEventListener('click', event => {
   if (click.button || click.ctrlKey || click.metaKey || click.shiftKey || click.altKey) return;
   event.preventDefault(); setPage('example', true);
 });
+$('#page-examples').addEventListener('pointerenter', () => void preloadPacking(), { once: true });
+$('#page-examples').addEventListener('focus', () => void preloadPacking(), { once: true });
 window.addEventListener('popstate', () => {
   setPage(new URLSearchParams(window.location.search).get('example') === 'packing-01' ? 'example' : 'robot');
   writeUrl();
@@ -848,6 +898,10 @@ function translate() {
   renderSceneNotices();
   renderSceneCopy();
   packing?.setLanguage(language);
+  if (!packing && $('#packing-page').querySelector('.packing-skeleton')) {
+    $('#packing-page').replaceChildren();
+    renderPackingSkeleton($('#packing-page'), language);
+  }
 }
 
 function setFieldError(field: NumericField, invalid: boolean) {
@@ -1987,7 +2041,8 @@ function sceneCanvas(): HTMLCanvasElement { return $<HTMLCanvasElement>('#canvas
 
 async function start() {
   try {
-    scene = new RobotScene($('#canvas-area'));
+    const modelCache = getSharedModelCache();
+    scene = new RobotScene($('#canvas-area'), { modelCache });
     if (import.meta.env.DEV) {
       (window as Window & { __reachTest?: unknown }).__reachTest = {
         snapshot: () => scene?.reachRingState(),
@@ -2016,6 +2071,11 @@ async function start() {
   }
 
   await loadSelection(true);
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(() => void preloadPacking(), { timeout: 3000 });
+  } else {
+    setTimeout(() => void preloadPacking(), 1500);
+  }
 }
 if (initialParams.has('example') && page === 'robot') {
   const url = new URL(window.location.href);
