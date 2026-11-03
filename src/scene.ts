@@ -129,17 +129,22 @@ function createConnectorEnvironment(): THREE.CanvasTexture {
   const context = canvas.getContext('2d');
   if (!context) throw new Error('Could not create connector reflection texture');
   const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
-  gradient.addColorStop(0, '#9099a3');
-  gradient.addColorStop(0.35, '#636c77');
-  gradient.addColorStop(0.72, '#4b535d');
-  gradient.addColorStop(1, '#31363d');
+  gradient.addColorStop(0, '#606269');
+  gradient.addColorStop(0.35, '#34363b');
+  gradient.addColorStop(0.72, '#1d2024');
+  gradient.addColorStop(1, '#111316');
   context.fillStyle = gradient;
   context.fillRect(0, 0, canvas.width, canvas.height);
-  context.fillStyle = '#f9fbff';
-  for (const [x, width, y, height] of [
-    [8, 25, 18, 210], [85, 18, 30, 170], [162, 30, 18, 200],
-    [250, 22, 35, 170], [328, 26, 18, 205], [414, 18, 25, 190], [482, 21, 18, 210],
-  ]) context.fillRect(x, y, width, height);
+  for (const [x, width, y, height] of [[5, 90, 20, 200], [176, 90, 22, 196], [347, 90, 20, 200]]) {
+    const softbox = context.createLinearGradient(x, 0, x + width, 0);
+    softbox.addColorStop(0, 'rgba(245,246,248,0)');
+    softbox.addColorStop(0.25, 'rgba(245,246,248,0.5)');
+    softbox.addColorStop(0.5, 'rgba(245,246,248,0.95)');
+    softbox.addColorStop(0.75, 'rgba(245,246,248,0.5)');
+    softbox.addColorStop(1, 'rgba(245,246,248,0)');
+    context.fillStyle = softbox;
+    context.fillRect(x, y, width, height);
+  }
   const texture = new THREE.CanvasTexture(canvas);
   texture.mapping = THREE.EquirectangularReflectionMapping;
   texture.colorSpace = THREE.SRGBColorSpace;
@@ -167,13 +172,14 @@ function maskConnectorPlastic(material: THREE.MeshStandardMaterial, model: 'lite
 
   material.onBeforeCompile = shader => {
     shader.uniforms.connectorPlasticColor = { value: new THREE.Color(0x191d20) };
+    if (model === 'uf850') shader.uniforms.connectorShellColor = { value: new THREE.Color(0xa3a6aa) };
     shader.vertexShader = shader.vertexShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;')
       .replace('#include <begin_vertex>', '#include <begin_vertex>\nvConnectorPosition = position;');
     shader.fragmentShader = shader.fragmentShader
-      .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;\nuniform vec3 connectorPlasticColor;')
-      .replace('#include <color_fragment>', `#include <color_fragment>\n${region}\n  diffuseColor.rgb = mix(diffuseColor.rgb, connectorPlasticColor, connectorPlastic);`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.13, connectorGloss);\n  roughnessFactor = mix(roughnessFactor, 0.7, connectorPlastic);')
+      .replace('#include <common>', `#include <common>\nvarying vec3 vConnectorPosition;\nuniform vec3 connectorPlasticColor;${model === 'uf850' ? '\nuniform vec3 connectorShellColor;' : ''}`)
+      .replace('#include <color_fragment>', `#include <color_fragment>\n${region}${model === 'uf850' ? '\n  diffuseColor.rgb = mix(diffuseColor.rgb, connectorShellColor, connectorGloss);' : ''}\n  diffuseColor.rgb = mix(diffuseColor.rgb, connectorPlasticColor, connectorPlastic);`)
+      .replace('#include <roughnessmap_fragment>', `#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, ${model === 'lite6' ? '0.18' : '0.13'}, connectorGloss);\n  roughnessFactor = mix(roughnessFactor, 0.7, connectorPlastic);`)
       .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.9, connectorGloss);\n  metalnessFactor = mix(metalnessFactor, 0.0, connectorPlastic);')
       .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
         #if defined(USE_ENVMAP) && defined(RE_IndirectSpecular)
@@ -183,7 +189,7 @@ function maskConnectorPlastic(material: THREE.MeshStandardMaterial, model: 'lite
           iblIrradiance *= connectorGloss;
         #endif`);
   };
-  material.customProgramCacheKey = () => `${model}-connector-finish-v3`;
+  material.customProgramCacheKey = () => `${model}-connector-finish-v4`;
 }
 
 /** Add visible socket contacts to the otherwise featureless xArm insert surface. */
@@ -231,7 +237,9 @@ function shadeXarmSocketContacts(material: THREE.MeshStandardMaterial, model: 'x
 /** Keep connector finishes local to this arm instance; GLB cache materials are shared. */
 function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMaterials: Set<THREE.Material>, environment: THREE.Texture): void {
   type Finish = { color?: number; metalness?: number; roughness?: number; glossy?: boolean; plastic?: 'lite6' | 'uf850'; xarm?: 'xarm5' | 'xarm6' | 'xarm7' };
-  const shell: Finish = { color: 0xd2d5d8, metalness: 0.9, roughness: 0.13, glossy: true };
+  // The official product renders show darker xArm connector metal and a lighter Lite 6 shell.
+  const shell: Finish = { color: 0x8b8e93, metalness: 0.9, roughness: 0.18, glossy: true };
+  const liteShell: Finish = { ...shell, color: 0xc0c3c8 };
   const socket: Finish = { color: 0x191d20, metalness: 0, roughness: 0.7 };
   const parts: Record<string, { link: string; finishes: Record<string, Finish> }> = {
     xarm5: { link: 'link5', finishes: {
@@ -247,8 +255,8 @@ function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMateri
       part_0: { plastic: 'uf850', glossy: true },
     } },
     lite6: { link: 'link6', finishes: {
-      part_1: { ...shell, plastic: 'lite6' },
-      part_2: shell,
+      part_1: { ...liteShell, plastic: 'lite6' },
+      part_2: liteShell,
     } },
   };
   const target = parts[robotId];
@@ -270,7 +278,7 @@ function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMateri
           if (finish.roughness !== undefined) material.roughness = finish.roughness;
           if (finish.glossy) {
             material.envMap = environment;
-            material.envMapIntensity = 1.5;
+            material.envMapIntensity = 1.2;
           }
           if (finish.plastic) maskConnectorPlastic(material, finish.plastic);
           if (finish.xarm) shadeXarmSocketContacts(material, finish.xarm);

@@ -61,9 +61,10 @@ test('polished connector shells reflect light at multiple angles without changin
             return out;
           };
           const reflected = pixels();
+          const intensities = materials.map(material => material.envMapIntensity);
           for (const material of materials) material.envMapIntensity = 0;
           const unreflected = pixels();
-          for (const material of materials) material.envMapIntensity = 1.5;
+          materials.forEach((material, index) => { material.envMapIntensity = intensities[index]; });
           const changed = (point: import('three').Vector3, radius: number) => {
             const cx = Math.round((point.x * .5 + .5) * width), cy = Math.round((point.y * .5 + .5) * height);
             let count = 0;

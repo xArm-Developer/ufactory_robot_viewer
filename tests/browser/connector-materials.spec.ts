@@ -109,7 +109,7 @@ test('connector rendering stays local to each arm and survives collision highlig
     expect(result[id].restored).toBeCloseTo(result[id].corrected, 0);
     expect(result[id].highlighted).toBe(true);
     expect(result[id].finish.metalness).toBeCloseTo(.9);
-    expect(result[id].finish.roughness).toBeCloseTo(.13);
+    expect(result[id].finish.roughness).toBeCloseTo(.18);
     if (id !== 'lite6') {
       expect(result[id].socket!.metalness).toBe(0);
       expect(result[id].socket!.roughness).toBeCloseTo(.7);

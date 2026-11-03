@@ -6,6 +6,8 @@
 
 2026-11-03 用户复核：金属外壳应为亮光，而非与法兰一致的哑光；需通过不同视角验证反光，同时保持塑料母头和法兰外观。
 
+2026-11-03 再次对照官网产品渲染图：xArm 接头呈较深冷银灰，Lite 6 较浅，850 两个接头以深色反射和亮银边缘为主。分别校准金属颜色和反射环境，减少过曝及生硬的白色条纹。参考 [xArm](https://www.ufactory.cc/products/ufactory-xarm-series)、[Lite 6](https://www.ufactory.cc/products/ufactory-lite-6) 和 [850](https://www.ufactory.cc/products/ufactory-850) 的末端渲染图；材质观感随视角和光照变化，不以不同角度的图片作逐像素验收。
+
 ## 1. 现状与基准
 
 - 接头范围为 xArm 5/6/7、850 和 Lite 6 的末端航空接头，目标是还原亮色金属外壳与黑色塑料插芯的区别。参考 [xArm 官网产品图](https://www.ufactory.cc/upfiles/products/202608/RAAIW8UMMNPH.webp)和 [Lite 6 官网产品图](https://www.ufactory.cc/upfiles/products/202606/IK5TTQNNDUA3.webp)。
