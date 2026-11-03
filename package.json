@@ -1,6 +1,6 @@
 {
   "name": "ufactory_robot_viewer",
-  "version": "0.0.6",
+  "version": "0.0.7",
   "private": true,
   "license": "BSD-3-Clause",
   "type": "module",

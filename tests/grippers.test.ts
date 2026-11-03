@@ -3,7 +3,7 @@ import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { MathUtils, Quaternion, Vector3 } from 'three';
 import URDFLoader from 'urdf-loader';
-import { bioFingerTravel, GRIPPERS, supportsGripper, toolOffset, validOpening } from '../src/grippers';
+import { bioFingerTravel, GRIPPERS, gripperMount, supportsGripper, toolOffset, validOpening } from '../src/grippers';
 import { forward, homeJoints, IKSolver, jointValues, setJoints, stepBasePose } from '../src/kinematics';
 import { getRobotSpec, type RobotId } from '../src/robots';
 import fixtures from './mujoco-gripper-fk.json';
@@ -43,6 +43,14 @@ describe('opening geometry', () => {
     expect(bioFingerTravel(71)).toBe(0);
     expect(bioFingerTravel(110)).toBeCloseTo(0.0195, 12);
     expect(bioFingerTravel(150)).toBeCloseTo(0.0395, 12);
+    for (const id of robots) {
+      const mount = gripperMount(id, 'bio-gripper-g2');
+      expect(mount.position.toArray()).toEqual([0, 0, 0]);
+      expect(mount.quaternion.toArray()).toEqual([0, 0, 0, 1]);
+      const tcp = toolOffset(id, 'bio-gripper-g2');
+      expect(tcp.position.toArray()).toEqual([0.135, 0, 0.055]);
+      expect(tcp.quaternion.toArray()).toEqual([0, 0, 0, 1]);
+    }
   });
 
 

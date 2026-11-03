@@ -26,9 +26,27 @@ def build_mujoco_model(urdf_path: Path, search_dirs: list[Path]) -> mujoco.MjMod
     tree = ET.parse(urdf_path)
     robot = tree.getroot()
 
+    for joint in robot.findall('joint'):
+        name = joint.attrib.get('name')
+        origin = joint.find('origin')
+        if origin is None:
+            continue
+        if name == 'bio_gripper_g2_attach':
+            origin.set('xyz', '0 0 0')
+            origin.set('rpy', '0 0 0')
+        elif name in ('bio_gripper_g2_left_finger_joint', 'bio_gripper_g2_right_finger_joint'):
+            origin.set('xyz', '0.081475 0 0.027')
+            origin.set('rpy', '0 0 0')
+
     with tempfile.TemporaryDirectory() as tmp:
         tmp_dir = Path(tmp)
         for link in robot.findall('link'):
+            if link.attrib.get('name') == 'bio_gripper_g2_base_link':
+                for col in link.findall('collision'):
+                    origin = col.find('origin')
+                    if origin is not None:
+                        origin.set('xyz', '0.022475 0.00083 0')
+                        origin.set('rpy', '0 0 0')
             for vis in list(link.findall('visual')):
                 link.remove(vis)
             for idx, col in enumerate(link.findall('collision')):

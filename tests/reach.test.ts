@@ -84,7 +84,11 @@ describe('z=0 TCP numerical reach estimates', () => {
         const rotated = original.clone().applyAxisAngle(new Vector3(0, 0, 1), angle - combo.jointsRad[0]);
         expect(actual.distanceTo(rotated), `${name} joint1 ${angle}`).toBeLessThan(toleranceM);
       }
-      if (gripperId === 'bio-gripper-g2') expect(Math.hypot(offset.position.x, offset.position.y)).toBeGreaterThan(0.15);
+      if (gripperId === 'bio-gripper-g2') {
+        expect(offset.position.x).toBeCloseTo(0.135, 8);
+        expect(offset.position.y).toBeCloseTo(0, 8);
+        expect(offset.position.z).toBeCloseTo(0.055 + (combo.sensor ? 0.0586 : 0), 8);
+      }
     }
   });
 

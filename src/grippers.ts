@@ -36,29 +36,19 @@ export function validOpening(spec: GripperSpec, value: number): boolean {
   return value >= opening.min && value <= opening.max && Math.abs(value * 10 - Math.round(value * 10)) < 1e-7;
 }
 
-// Fixed attachment of BIO base to each arm's flange, from the corresponding combination URDF.
-const BIO_MOUNTS: Partial<Record<RobotId, { xyz: [number, number, number]; yaw: number }>> = {
-  xarm5: { xyz: [0.026044, -0.000867, -0.000697], yaw: -0.00702875 },
-  xarm6: { xyz: [0.027018, -0.000715, -0.000692], yaw: -0.00706128 },
-  xarm7: { xyz: [0.026931, -0.000882, -0.000760], yaw: -0.00784664 },
-  uf850: { xyz: [0.024657, 0, 0], yaw: 0 },
-};
-
 export function gripperMount(robotId: RobotId, id: GripperId): Pose {
   if (!supportsGripper(robotId, id)) throw new Error(`Unsupported gripper on ${robotId}`);
-  if (id !== 'bio-gripper-g2') return { position: new Vector3(), quaternion: new Quaternion() };
-  const mount = BIO_MOUNTS[robotId]!;
-  return { position: new Vector3(...mount.xyz), quaternion: new Quaternion().setFromAxisAngle(new Vector3(0, 0, 1), mount.yaw) };
+  return { position: new Vector3(), quaternion: new Quaternion() };
 }
 
 /** Flange-to-TCP transform, independent of the opening and visual corrections. */
 export function toolOffset(robotId: RobotId, id?: GripperId): Pose {
   if (!id) return { position: new Vector3(), quaternion: new Quaternion() };
-  const mount = gripperMount(robotId, id);
-  const localTcp = id === 'gripper-g2' ? new Vector3(0, 0, 0.1735)
+  if (!supportsGripper(robotId, id)) throw new Error(`Unsupported gripper on ${robotId}`);
+  const position = id === 'gripper-g2' ? new Vector3(0, 0, 0.1735)
     : id === 'bio-gripper-g2' ? new Vector3(0.135, 0, 0.055)
       : new Vector3(0, 0, id === 'lite6-gripper' ? 0.0836 : 0.061);
-  return { position: localTcp.applyQuaternion(mount.quaternion).add(mount.position), quaternion: mount.quaternion.clone() };
+  return { position, quaternion: new Quaternion() };
 }
 
 /** Reference G2 parallel linkage calibrated to the inner pad gap in millimetres. */
