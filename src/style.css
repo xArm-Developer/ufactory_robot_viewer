@@ -1177,7 +1177,18 @@ select:focus-visible { outline: 2px solid #dd713f; outline-offset: 3px; }
 .page-nav { display: flex; align-items: center; gap: 4px; margin-left: 28px; }
 .page-nav a { padding: 9px 10px; color: #75847b; font-size: 12px; font-weight: 700; white-space: nowrap; }
 .page-nav a[aria-current] { color: #26382f; box-shadow: inset 0 -2px #e87142; }
+#packing-page { min-height: min(670px, calc(100vh - 32px)); }
 .packing-experience { display: grid; grid-template-columns: minmax(0, 1fr) 400px; gap: 14px; margin-top: 12px; align-items: start; }
+.packing-skeleton .packing-panel { display: flex; flex-direction: column; }
+.packing-skeleton .skeleton-line {
+  background: #eef2ed;
+  border-radius: 2px;
+  animation: packing-pulse 1.5s ease-in-out infinite;
+}
+@keyframes packing-pulse {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
 .packing-panel { padding: 26px; border: 1px solid #e4e8e2; background: #fff; }
 .packing-panel label { display: block; color: #84948a; font-size: 10px; font-weight: 800; margin-bottom: 8px; }
 .packing-panel select { width: 100%; padding: 10px; border: 1px solid #d9ded8; background: #fff; color: #34463b; }

@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js';
 import { STLLoader } from 'three/addons/loaders/STLLoader.js';
-import type { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
+import { DRACOLoader } from 'three/addons/loaders/DRACOLoader.js';
 import assets from 'virtual:model-assets';
 
 export const MODEL_CACHE_LIMIT = 64 * 1024 * 1024;
@@ -155,6 +155,10 @@ export class ModelCache {
     return this.lease(url, entry);
   }
 
+  has(url: string): boolean {
+    return this.entries.has(url);
+  }
+
   dispose(): void {
     this.disposed = true;
     for (const entry of this.entries.values()) {
@@ -165,3 +169,18 @@ export class ModelCache {
     this.totalBytes = 0;
   }
 }
+
+let sharedCache: ModelCache | undefined;
+
+export function getSharedModelCache(draco?: DRACOLoader): ModelCache {
+  if (!sharedCache) {
+    const dracoLoader = draco ?? (() => {
+      const loader = new DRACOLoader();
+      loader.setDecoderPath(new URL(`${import.meta.env.BASE_URL}draco/`, document.baseURI).href);
+      return loader;
+    })();
+    sharedCache = new ModelCache(dracoLoader);
+  }
+  return sharedCache;
+}
+
