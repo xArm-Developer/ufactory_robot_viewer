@@ -17,6 +17,43 @@ const links = {
   ],
 } as const;
 
+test('header logo and browser tab favicon match UFACTORY official icons across widths', async ({ page }) => {
+  await page.goto('/');
+
+  const faviconLink = page.locator('head link[rel="icon"]');
+  await expect(faviconLink).toHaveAttribute('href', './favicon.ico');
+  await expect(faviconLink).toHaveAttribute('type', 'image/x-icon');
+  const faviconUrl = await faviconLink.evaluate(el => (el as HTMLLinkElement).href);
+  const faviconResponse = await page.request.get(faviconUrl);
+  expect(faviconResponse.status()).toBe(200);
+  const faviconBytes = await faviconResponse.body();
+  expect(faviconBytes.byteLength).toBe(238654);
+
+  const brand = page.locator('.site-header .brand');
+  await expect(brand).toHaveAttribute('href', '#top');
+  await expect(brand).toHaveAttribute('aria-label', 'UFACTORY Robot Viewer home');
+  await expect(brand).not.toContainText(/UF•|ROBOT VIEWER/i);
+
+  const logo = brand.locator('img.brand-logo');
+  await expect(logo).toBeVisible();
+  await expect(logo).toHaveAttribute('alt', 'UFACTORY');
+  const natural = await logo.evaluate(img => ({
+    complete: (img as HTMLImageElement).complete,
+    width: (img as HTMLImageElement).naturalWidth,
+    height: (img as HTMLImageElement).naturalHeight,
+  }));
+  expect(natural).toEqual({ complete: true, width: 1268, height: 434 });
+
+  for (const [width, expectedHeight] of [[1440, 32], [800, 28], [390, 24], [320, 24]] as const) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+    const box = await logo.boundingBox();
+    expect(box).not.toBeNull();
+    expect(Math.round(box!.height)).toBe(expectedHeight);
+    expect(box!.width).toBeGreaterThan(expectedHeight * 2.8);
+  }
+});
+
 test('footer shows only localized social links at desktop and mobile widths', async ({ page }) => {
   await page.goto('/');
   const footer = page.locator('#site-footer');

@@ -165,7 +165,7 @@ function buildJointTelemetryHtml(dof: number): string {
 const app = document.querySelector<HTMLDivElement>('#app')!;
 app.innerHTML = `
   <header class="site-header">
-    <a class="brand" href="#top" aria-label="UFACTORY Robot Viewer home"><span class="brand-mark">UF<span>•</span></span><span class="brand-name">ROBOT VIEWER</span></a>
+    <a class="brand" href="#top" aria-label="UFACTORY Robot Viewer home"><img class="brand-logo" src="${import.meta.env.BASE_URL}branding/logo_yc.png" width="1268" height="434" alt="UFACTORY" /></a>
     <nav class="page-nav" aria-label="Pages"><a id="page-robot" href="?" data-t="pageRobot"></a><a id="page-examples" href="?example=packing-01" data-t="pageExamples"></a></nav>
     <button class="language" id="language" type="button" aria-label="Switch language"><span class="language-icon">◎</span> <span id="language-label">EN</span></button>
   </header>

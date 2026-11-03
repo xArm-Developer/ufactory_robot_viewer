@@ -59,27 +59,12 @@ a {
 .brand {
   display: inline-flex;
   align-items: center;
-  gap: 14px;
+  flex-shrink: 0;
 }
-.brand-mark {
-  font-size: 27px;
-  font-weight: 900;
-  letter-spacing: -3px;
-  line-height: 1;
-}
-.brand-mark span {
-  color: #e87142;
-}
-.brand-name {
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.17em;
-}
-.brand-name small {
-  color: #a3aba5;
-  font-size: 9px;
-  font-weight: 700;
-  letter-spacing: 0.12em;
+.brand-logo {
+  display: block;
+  width: auto;
+  height: 32px;
 }
 .language {
   margin-left: auto;
@@ -1004,8 +989,8 @@ input:focus-visible {
     height: 60px;
     padding: 0 16px;
   }
-  .brand-mark {
-    font-size: 24px;
+  .brand-logo {
+    height: 28px;
   }
   .experience {
     display: flex;
@@ -1083,9 +1068,7 @@ input:focus-visible {
 }
 @media (max-width: 600px) {
   .site-header { gap: 8px; }
-  .site-header .brand { gap: 4px; flex-shrink: 0; }
-  .site-header .brand-name { font-size: 10px; letter-spacing: 0.08em; }
-  .site-header .brand-name small { display: none; }
+  .brand-logo { height: 24px; }
   .language { flex-shrink: 0; min-width: 48px; padding: 8px 6px; }
   .language-icon { font-size: 15px; margin-right: 1px; }
 }
@@ -1211,7 +1194,6 @@ select:focus-visible { outline: 2px solid #dd713f; outline-offset: 3px; }
   .packing-mobile { display: block; }
 }
 @media (max-width: 600px) {
-  .site-header .brand-name { display: none; }
   .page-nav { margin-left: 0; gap: 0; }
   .page-nav a { padding: 8px 5px; font-size: 11px; }
   .packing-panel { padding: 20px; }
