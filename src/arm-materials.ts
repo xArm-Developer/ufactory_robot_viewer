@@ -49,6 +49,14 @@ const BODY_PARTS: Record<RobotId, Record<string, BodyParts>> = {
   },
 };
 
+// The 850 flange shares its mesh with the connector; copy only its base PBR values.
+const FLANGE_PARTS: Partial<Record<RobotId, { link: string; part: string }>> = {
+  xarm5: { link: 'link5', part: 'part_4' },
+  xarm6: { link: 'link6', part: 'part_4' },
+  xarm7: { link: 'link7', part: 'part_4' },
+  uf850: { link: 'link6', part: 'part_0' },
+};
+
 /** Neutral softboxes for arm finishes only; scene lighting and connector reflections stay separate. */
 export function createArmEnvironment(): THREE.CanvasTexture {
   const canvas = document.createElement('canvas');
@@ -81,6 +89,21 @@ export function createArmEnvironment(): THREE.CanvasTexture {
 
 /** Clone only mapped body materials: decoded GLB resources can be shared by cached instances. */
 export function adjustArmMaterials(robot: URDFRobot, id: RobotId, owned: Set<THREE.Material>, environment: THREE.Texture): void {
+  const flangePart = FLANGE_PARTS[id];
+  let flangeMaterial: THREE.MeshStandardMaterial | undefined;
+  if (flangePart) {
+    const link = robot.links[flangePart.link];
+    for (const visual of link?.children ?? []) {
+      if (!(visual as THREE.Object3D & { isURDFVisual?: boolean }).isURDFVisual) continue;
+      visual.traverse(object => {
+        if (!(object instanceof THREE.Mesh) || object.name !== flangePart.part) return;
+        const materials = Array.isArray(object.material) ? object.material : [object.material];
+        flangeMaterial = materials.find(material => material instanceof THREE.MeshStandardMaterial) as THREE.MeshStandardMaterial | undefined;
+      });
+    }
+    if (!flangeMaterial) throw new Error(`Missing flange material for ${id}`);
+  }
+
   for (const [linkName, parts] of Object.entries(BODY_PARTS[id])) {
     const link = robot.links[linkName];
     if (!link) continue;
@@ -101,18 +124,20 @@ export function adjustArmMaterials(robot: URDFRobot, id: RobotId, owned: Set<THR
               material.roughness = 0.24;
               material.metalness = 0;
               material.envMapIntensity = 0.75;
+              material.envMap = environment;
             } else if (finish === 'metal') {
-              material.color.setHex(0xb8babc);
-              material.roughness = 0.32;
-              material.metalness = 0.8;
-              material.envMapIntensity = 0.9;
+              if (!flangeMaterial) throw new Error(`Missing flange material for ${id}`);
+              material.color.copy(flangeMaterial.color);
+              material.roughness = flangeMaterial.roughness;
+              material.metalness = flangeMaterial.metalness;
+              material.envMap = null;
             } else {
               material.color.setHex(0x707276);
               material.roughness = 0.42;
               material.metalness = 0.12;
               material.envMapIntensity = 0.7;
+              material.envMap = environment;
             }
-            material.envMap = environment;
           }
           return material;
         });
