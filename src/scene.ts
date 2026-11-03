@@ -121,20 +121,49 @@ function adjustLite6Materials(robot: URDFRobot, ownedMaterials: Set<THREE.Materi
   }
 }
 
+/** A small studio reflection map used only by polished connector shells. */
+function createConnectorEnvironment(): THREE.CanvasTexture {
+  const canvas = document.createElement('canvas');
+  canvas.width = 512;
+  canvas.height = 256;
+  const context = canvas.getContext('2d');
+  if (!context) throw new Error('Could not create connector reflection texture');
+  const gradient = context.createLinearGradient(0, 0, 0, canvas.height);
+  gradient.addColorStop(0, '#9099a3');
+  gradient.addColorStop(0.35, '#636c77');
+  gradient.addColorStop(0.72, '#4b535d');
+  gradient.addColorStop(1, '#31363d');
+  context.fillStyle = gradient;
+  context.fillRect(0, 0, canvas.width, canvas.height);
+  context.fillStyle = '#f9fbff';
+  for (const [x, width, y, height] of [
+    [8, 25, 18, 210], [85, 18, 30, 170], [162, 30, 18, 200],
+    [250, 22, 35, 170], [328, 26, 18, 205], [414, 18, 25, 190], [482, 21, 18, 210],
+  ]) context.fillRect(x, y, width, height);
+  const texture = new THREE.CanvasTexture(canvas);
+  texture.mapping = THREE.EquirectangularReflectionMapping;
+  texture.colorSpace = THREE.SRGBColorSpace;
+  return texture;
+}
+
 /** The Lite 6 and 850 source meshes combine plastic inserts and metal in one mesh. */
 function maskConnectorPlastic(material: THREE.MeshStandardMaterial, model: 'lite6' | 'uf850'): void {
   // The 850 sockets share a 30-degree axis; their inserts sit at different
   // depths. Restrict the mask to the faces so the flange and contacts stay metal.
   const region = model === 'lite6'
     ? `float radius = length(vConnectorPosition.xz - vec2(0.0000764, -0.008998));
-       float connectorPlastic = step(0.0458, vConnectorPosition.y) * (1.0 - smoothstep(0.0038, 0.0044, radius));`
+       float connectorPlastic = step(0.0458, vConnectorPosition.y) * (1.0 - smoothstep(0.0038, 0.0044, radius));
+       float connectorGloss = 1.0 - connectorPlastic;`
     : `float tangent = dot(vConnectorPosition.xy, vec2(0.8660254, 0.5));
        float depth = dot(vConnectorPosition.xy, vec2(0.5, -0.8660254));
        float largeRadius = length(vec2(tangent + 0.00845, vConnectorPosition.z + 0.0185));
        float smallRadius = length(vec2(tangent - 0.0099, vConnectorPosition.z + 0.0183));
        float largeInsert = step(0.0458, depth) * (1.0 - smoothstep(0.00435, 0.0045, largeRadius));
        float smallInsert = step(0.0395, depth) * (1.0 - smoothstep(0.0031, 0.00325, smallRadius));
-       float connectorPlastic = max(largeInsert, smallInsert);`;
+       float connectorPlastic = max(largeInsert, smallInsert);
+       float largeShell = (1.0 - smoothstep(0.0068, 0.0070, largeRadius)) * smoothstep(0.0043, 0.0045, largeRadius) * smoothstep(0.0390, 0.0396, depth);
+       float smallShell = (1.0 - smoothstep(0.0051, 0.0054, smallRadius)) * smoothstep(0.0030, 0.0033, smallRadius) * smoothstep(0.0390, 0.0396, depth);
+       float connectorGloss = max(largeShell, smallShell) * (1.0 - connectorPlastic);`;
 
   material.onBeforeCompile = shader => {
     shader.uniforms.connectorPlasticColor = { value: new THREE.Color(0x191d20) };
@@ -144,10 +173,17 @@ function maskConnectorPlastic(material: THREE.MeshStandardMaterial, model: 'lite
     shader.fragmentShader = shader.fragmentShader
       .replace('#include <common>', '#include <common>\nvarying vec3 vConnectorPosition;\nuniform vec3 connectorPlasticColor;')
       .replace('#include <color_fragment>', `#include <color_fragment>\n${region}\n  diffuseColor.rgb = mix(diffuseColor.rgb, connectorPlasticColor, connectorPlastic);`)
-      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.7, connectorPlastic);')
-      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.0, connectorPlastic);');
+      .replace('#include <roughnessmap_fragment>', '#include <roughnessmap_fragment>\n  roughnessFactor = mix(roughnessFactor, 0.13, connectorGloss);\n  roughnessFactor = mix(roughnessFactor, 0.7, connectorPlastic);')
+      .replace('#include <metalnessmap_fragment>', '#include <metalnessmap_fragment>\n  metalnessFactor = mix(metalnessFactor, 0.9, connectorGloss);\n  metalnessFactor = mix(metalnessFactor, 0.0, connectorPlastic);')
+      .replace('#include <lights_fragment_maps>', `#include <lights_fragment_maps>
+        #if defined(USE_ENVMAP) && defined(RE_IndirectSpecular)
+          radiance *= connectorGloss;
+        #endif
+        #if defined(USE_ENVMAP) && defined(RE_IndirectDiffuse)
+          iblIrradiance *= connectorGloss;
+        #endif`);
   };
-  material.customProgramCacheKey = () => `${model}-connector-plastic-v2`;
+  material.customProgramCacheKey = () => `${model}-connector-finish-v3`;
 }
 
 /** Add visible socket contacts to the otherwise featureless xArm insert surface. */
@@ -193,9 +229,9 @@ function shadeXarmSocketContacts(material: THREE.MeshStandardMaterial, model: 'x
 }
 
 /** Keep connector finishes local to this arm instance; GLB cache materials are shared. */
-function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMaterials: Set<THREE.Material>): void {
-  type Finish = { color?: number; metalness?: number; roughness?: number; plastic?: 'lite6' | 'uf850'; xarm?: 'xarm5' | 'xarm6' | 'xarm7' };
-  const shell: Finish = { color: 0xc6c9cc, metalness: 0.65, roughness: 0.4 };
+function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMaterials: Set<THREE.Material>, environment: THREE.Texture): void {
+  type Finish = { color?: number; metalness?: number; roughness?: number; glossy?: boolean; plastic?: 'lite6' | 'uf850'; xarm?: 'xarm5' | 'xarm6' | 'xarm7' };
+  const shell: Finish = { color: 0xd2d5d8, metalness: 0.9, roughness: 0.13, glossy: true };
   const socket: Finish = { color: 0x191d20, metalness: 0, roughness: 0.7 };
   const parts: Record<string, { link: string; finishes: Record<string, Finish> }> = {
     xarm5: { link: 'link5', finishes: {
@@ -208,7 +244,7 @@ function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMateri
       part_0: { ...socket, xarm: 'xarm7' }, part_1: shell, part_2: shell,
     } },
     uf850: { link: 'link6', finishes: {
-      part_0: { plastic: 'uf850' },
+      part_0: { plastic: 'uf850', glossy: true },
     } },
     lite6: { link: 'link6', finishes: {
       part_1: { ...shell, plastic: 'lite6' },
@@ -232,6 +268,10 @@ function adjustConnectorMaterials(robot: URDFRobot, robotId: string, ownedMateri
           if (finish.color !== undefined) material.color.setHex(finish.color);
           if (finish.metalness !== undefined) material.metalness = finish.metalness;
           if (finish.roughness !== undefined) material.roughness = finish.roughness;
+          if (finish.glossy) {
+            material.envMap = environment;
+            material.envMapIntensity = 1.5;
+          }
           if (finish.plastic) maskConnectorPlastic(material, finish.plastic);
           if (finish.xarm) shadeXarmSocketContacts(material, finish.xarm);
         }
@@ -297,6 +337,7 @@ export class RobotScene {
   private armTemplates = new Map<string, URDFRobot>();
   private accessoryAssets: ModelLease[] = [];
   private ownedArmMaterials = new Set<THREE.Material>();
+  private connectorEnvironment = createConnectorEnvironment();
   private railDragGeometry?: THREE.BufferGeometry;
   private resizeObserver: ResizeObserver;
   private reachRing?: THREE.Mesh<THREE.RingGeometry, THREE.MeshBasicMaterial>;
@@ -471,6 +512,7 @@ export class RobotScene {
     this.modelCache.dispose();
     this.armTemplates.clear();
     this.draco.dispose();
+    this.connectorEnvironment.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
   }
@@ -557,7 +599,7 @@ export class RobotScene {
         this.armTemplates.set(spec.id, structure);
       }
       if (spec.id === 'lite6') adjustLite6Materials(nextRobot, this.ownedArmMaterials);
-      adjustConnectorMaterials(nextRobot, spec.id, this.ownedArmMaterials);
+      adjustConnectorMaterials(nextRobot, spec.id, this.ownedArmMaterials, this.connectorEnvironment);
 
       this.robot = nextRobot;
       this.armAssets = leases;

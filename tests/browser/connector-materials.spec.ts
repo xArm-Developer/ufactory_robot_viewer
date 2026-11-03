@@ -81,6 +81,7 @@ test('connector rendering stays local to each arm and survives collision highlig
           material.color.setRGB(color[0], color[1], color[2]);
           material.metalness = 0;
           material.roughness = 1;
+          material.envMap = null;
           material.onBeforeCompile = () => {};
           material.customProgramCacheKey = () => `original-connector-${id}`;
           mesh.material = material;
@@ -107,8 +108,8 @@ test('connector rendering stays local to each arm and survives collision highlig
     expect(result[id].corrected, `${id}: connector is visibly darker`).toBeLessThan(result[id].original * .8);
     expect(result[id].restored).toBeCloseTo(result[id].corrected, 0);
     expect(result[id].highlighted).toBe(true);
-    expect(result[id].finish.metalness).toBeCloseTo(.65);
-    expect(result[id].finish.roughness).toBeCloseTo(.4);
+    expect(result[id].finish.metalness).toBeCloseTo(.9);
+    expect(result[id].finish.roughness).toBeCloseTo(.13);
     if (id !== 'lite6') {
       expect(result[id].socket!.metalness).toBe(0);
       expect(result[id].socket!.roughness).toBeCloseTo(.7);
@@ -258,6 +259,7 @@ test('850 preserves the metal flange and both sockets through highlight and mode
       const corrected = measure();
       const material = mesh.material as import('three').MeshStandardMaterial;
       const original = material.clone();
+      original.envMap = null;
       original.onBeforeCompile = () => {};
       original.customProgramCacheKey = () => '850-connector-unmodified';
       mesh.material = original;
@@ -282,7 +284,7 @@ test('850 preserves the metal flange and both sockets through highlight and mode
     expect(result.unmodified[name][0], `${name} source socket was light`).toBeGreaterThan(70);
     expect(result.highlighted[name][0]).toBeGreaterThan(result.highlighted[name][1] * 1.5);
   }
-  expect(result.corrected.shell).toEqual(result.unmodified.shell);
+  expect(result.corrected.shell).not.toEqual(result.unmodified.shell);
   expect(result.corrected.flange).toEqual(result.unmodified.flange);
   expect(result.restored).toEqual(result.corrected);
   expect(result.reloaded).toEqual(result.corrected);
