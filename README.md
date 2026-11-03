@@ -54,6 +54,12 @@ npm run dev
 - 旧配件链接 `?model=ai1500`、`?model=gripper-g2&opening=42`、`?model=bio-gripper-g2&opening=110` 转换为 xArm 6 装配；`?model=lite6-gripper&opening=0` 和 `?model=lite6-vacuum-gripper` 转换为 Lite 6 装配。有效开口和锚点保留，旧模式下不生效的滑轨、传感器及夹爪参数清除。
 - `?model=xarm7&rail=al0700&railPos=280.5&sensor=ai1500&gripper=bio-gripper-g2&opening=110.0` 或 `?model=lite6&gripper=lite6-gripper&opening=100`：组合装配直达链接。`rail=al0700` 与 `railPos=0..700` 仅对 `xarm5/6/7` 生效；`sensor=ai1500` 对 `xarm5/6/7/uf850` 生效；`gripper` 须与机械臂兼容。Gripper Lite 的 `opening` 只接受 `0`（闭合）或 `100`（张开），其他值回退至张开并更新地址栏。省略或无效参数自动回退默认值，地址栏同步清理或更新。
 
+## 开发分支与远程仓库
+
+当前开发工作区使用个人分支 `daniel/v0.0.7`；`origin` 指向个人 Fork `DanielWang123321/ufactory_robot_viewer`，`upstream` 指向官方仓库 `xArm-Developer/ufactory_robot_viewer`。开发分支执行 `git push` 默认推送个人 Fork；未设置上游跟踪的新分支首次执行 `git push` 会自动建立个人远端跟踪。这些 Git 配置保存在本地，其他工作区需单独设置。
+
+本地 `main` 跟踪 `upstream/main`，其无参数 `git push` 已禁用；显式指定远程仓库仍可推送。准备合并时，在 GitHub 从个人分支向官方 `main` 创建 PR，并手工审核、合并。推送个人开发分支可能触发 Cloudflare 预览部署。
+
 
 ## 部署
 
