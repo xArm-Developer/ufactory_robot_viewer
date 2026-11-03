@@ -4,7 +4,7 @@
 
 3D 体验区下方的资产清单列出场景中已加载的产品及其 UFACTORY 官方商城介绍页，链接在新标签页打开；加载中或加载失败时显示相应状态。配件条目以实际场景为准。
 
-页脚按 UFACTORY 官网中英文版本显示导航、联系方式与社交入口；订阅提交经同源服务转发至官网。官网当前隐私政策和法律声明未提供目标地址，页面保留对应文字。
+页脚根据界面语言显示“关注我们”和对应社交链接。
 
 ## 本地运行
 
@@ -17,8 +17,6 @@ npm run dev
 
 浏览器打开终端输出的地址。手机在同一局域网时，可使用终端输出的网络地址。`npm run build` 输出 `dist/`；`npm run preview` 预览生产构建。
 
-订阅接口在开发服务中使用同源代理；Cloudflare Pages 部署时由 `functions/api/subscribe.ts` 提供。纯 Vite `preview` 仅提供静态文件，不运行 Pages Functions；验证生产订阅接口须使用 Pages Functions 运行环境。
-
 - `npm run typecheck`：TypeScript 类型检查。
 - `npm test`：视觉开口几何、URDF、MuJoCo FK/碰撞基准、IK、末端调平、基座 `z=0` 可达半径、本地场景存储、几何碰撞及装箱场景测试。
 - `npm run test:browser`：Playwright 桌面和手机尺寸测试，包括装箱动力学、故障和页面状态。首次使用需 `npx playwright install chromium`；也可设置 `CHROME_PATH` 使用本机 Chrome。
@@ -26,6 +24,10 @@ npm run dev
 - `python scripts/build-collision-hulls.py`：从官方碰撞网格及配件视觉网格离线提取紧凑凸包 `public/models/<id>/collision.json` 并同步 `SHA256SUMS`。
 - `node scripts/reach-input.mjs` 与 `python scripts/generate-reach.py`：导出 27 种兼容装配组合的 TCP 变换，并使用多起点 SLSQP 与差分进化双方法离线计算基座 `z=0` 平面最大水平可达距离（写入 `src/reach-data.json`）。
 - `python scripts/generate-mujoco-fixtures.py`、`python scripts/generate-mujoco-gripper-fixtures.py`、`python scripts/generate-mujoco-lite6-tool-fixtures.py`、`python scripts/generate-mujoco-collision-fixtures.py` 和 `python tests/packing-physics.py`：使用 MuJoCo 重新生成五款裸臂及夹爪组合的 FK 与几何碰撞真值基准，或运行装箱示例独立跌落物理核验。
+
+离线 Python 脚本不参与网页构建。已验证的 `py314` 环境为 Python 3.14.6、MuJoCo 3.15.0、NumPy 2.5.2 和 SciPy 1.18.0；激活环境后可用 `python -m pip install mujoco==3.15.0 numpy scipy` 安装所需库。凸包与可达范围脚本需要 NumPy 和 SciPy；MuJoCo 基准、可达范围及装箱物理核验还需要 MuJoCo；`build-packing-model.py` 只使用 Python 标准库。可达范围脚本另外调用 Node.js。
+
+重新生成碰撞凸包或 MuJoCo 碰撞基准时，还需只读的 [UFACTORY Genesis](https://github.com/xArm-Developer/ufactory_genesis) `assets/urdf` 目录（含各机械臂、BIO Gripper G2、Gripper Lite 和 Vacuum Gripper Lite 的碰撞或视觉 STL）。默认读取 `../ufactory_genesis/assets/urdf`，也可用 `UFACTORY_GENESIS_URDF_DIR` 指定；复现时应核对各 `public/models/*/SOURCE.md` 所列的上游版本。夹爪 FK 基准使用项目内 `tests/reference-urdfs/` 的原始组合 URDF。其他输入来自项目内模型和配置；生成脚本会覆盖相应生成文件。
 
 3D 机械臂舞台初始关节角与滑轨行程均为零。控制面板左侧为笛卡尔控制、右侧为关节控制，默认选中并展开笛卡尔控制；两种面板均支持通过右上角折线箭头收起（展开显示向上 `^`，收起显示向下箭头）并分别保留展开状态，收起时同步隐藏共享速度与预设按钮并停止进行中的运动。关节面板每行提供左减右增按钮及只读进度条（显示 URDF 关节限位、`0°` 零点刻度、当前关节角度与实时位置指针）；关节按钮短按步进 `1°`，鼠标或触屏长按超过 `220 ms` 后连续运动，键盘按 Enter 或空格单步；连续运动在释放、取消、切换标签或场景、收起面板及失焦时停止。关节、笛卡尔与直线滑轨共用 `1%–100%` 速度（默认 `50%`，调整后保存在当前浏览器并在刷新后恢复；关节速度线性映射为 `1–45°/s`，笛卡尔与滑轨线速度映射为 `2.5–250 mm/s`，笛卡尔姿态角速度线性映射为 `1–40°/s`），速度下方提供两面板共用的“初始位置”（将当前机械臂全部关节移向 `0°`，保留滑轨行程与末端工具配置）与“末端调平”（只调整最后三个关节，在关节限位内取关节角变化平方和最小的解使法兰局部 `+Z` 与基坐标系 `−Z` 夹角不超过 `0.1°`，不可达时保留当前姿态并提示）：两按钮与其他控制按钮交互一致，短按或键盘 Enter/空格沿目标同步步进最多 `1°`，鼠标或触屏长按超过 `220 ms` 后按共享关节速度连续插值（每次碰撞检测间任意关节移动不超过 `1°`），在释放、取消、配件或滑轨调整、切换标签或场景、收起面板及失焦时停止。笛卡尔短按步进为位置 `1 mm`、姿态 `1°`。滑轨行程位于“直线滑轨”面板（`0–700 mm`，提供 `0.1 mm` 步长数值输入、只读进度条及左减右增按钮；按钮短按步进 `1 mm`，长按超过 `220 ms` 按共享线速度连续运动并以不超过 `1 mm` 间隔检查碰撞）。五轴 `xArm 5` 的 `Roll±` 禁用。
 

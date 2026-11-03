@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { expect, test } from '@playwright/test';
+import { Color } from 'three';
 
 type Finish = { color: number[]; roughness: number; metalness: number };
 
@@ -72,7 +73,7 @@ test('Lite 6 finishes survive collision highlights and model switches without ch
       const gripper = finish(shell);
 
       const xarm = (await scene.load(getRobotSpec('xarm6')))!;
-      const otherRobot = finishes(xarm, 'link_base');
+      const otherRobot = finishes(xarm, 'link1');
       const reloaded = (await scene.load(liteSpec))!;
       const afterSwitch = Object.fromEntries(linkNames.map(name => [name, finishes(reloaded, name)]));
       return { initial, highlighted, restored, afterHighlight, gripper, otherRobot, afterSwitch };
@@ -94,8 +95,14 @@ test('Lite 6 finishes survive collision highlights and model switches without ch
         continue;
       }
       const expected = { ...asset };
-      if (covers[link] === part) expected.color = [0.55, 0.55, 0.55];
-      else if (link !== 'link6' && asset.color.every(channel => channel === 1)) expected.roughness = 0.3;
+      if (covers[link] === part) {
+        expected.color = new Color(0x707276).toArray();
+        expected.roughness = 0.42;
+        expected.metalness = 0.12;
+      } else if (link !== 'link6' && asset.color.every(channel => channel === 1)) {
+        expected.color = new Color(0xe2e4e5).toArray();
+        expected.roughness = 0.24;
+      }
       expect(actual[part], `${link}/${part}`).toEqual(expected);
     }
   }
@@ -104,5 +111,5 @@ test('Lite 6 finishes survive collision highlights and model switches without ch
   expect(result.afterHighlight).toEqual(result.initial);
   expect(result.afterSwitch).toEqual(result.initial);
   expect(result.gripper).toEqual(assetFinishes('public/models/lite6-gripper/shell.glb').part_0);
-  expect(result.otherRobot).toEqual(assetFinishes('public/models/xarm6/meshes/xarm6_1305/visual_glb/link_base.glb'));
+  expect(result.otherRobot.part_0).toEqual(assetFinishes('public/models/xarm6/meshes/xarm6_1305/visual_glb/link1.glb').part_0);
 });

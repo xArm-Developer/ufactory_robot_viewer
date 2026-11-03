@@ -1,56 +1,82 @@
 import { expect, test } from '@playwright/test';
 
-test('footer follows official language, links, layout and keyboard navigation', async ({ page }) => {
+const links = {
+  zh: [
+    ['知乎', 'https://www.zhihu.com/people/ufactory'],
+    ['哔哩哔哩', 'https://space.bilibili.com/182490099/upload/video'],
+    ['CSDN', 'https://blog.csdn.net/ufactory'],
+    ['GitHub', 'https://github.com/xArm-Developer'],
+  ],
+  en: [
+    ['YouTube', 'https://www.youtube.com/channel/UCyy5ekYtq35jFtPpY3O_tVA'],
+    ['LinkedIn', 'https://www.linkedin.com/company/ufactoryxarm/'],
+    ['Facebook', 'https://www.facebook.com/Ufactory2013'],
+    ['X', 'https://x.com/ufactory_uf'],
+    ['Instagram', 'https://www.instagram.com/ufactoryofficial/'],
+    ['GitHub', 'https://github.com/xArm-Developer'],
+  ],
+} as const;
+
+test('footer shows only localized social links at desktop and mobile widths', async ({ page }) => {
   await page.goto('/');
   const footer = page.locator('#site-footer');
-  await expect(footer.getByText('订阅最新动态')).toBeVisible();
-  await expect(footer.getByRole('link', { name: '官方商城' })).toHaveAttribute('href', /taobao\.com/);
-  await expect(footer.getByRole('link', { name: '知乎' })).toHaveAttribute('href', 'https://www.zhihu.com/people/ufactory');
-  await expect(footer.getByRole('link', { name: 'GitHub' })).toHaveAttribute('href', 'https://github.com/xArm-Developer');
-  await expect(footer.getByRole('textbox', { name: '邮箱地址' })).toBeVisible();
 
-  for (const width of [1440, 800, 390, 320]) {
-    await page.setViewportSize({ width, height: 900 });
-    await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
-    await expect(footer.getByRole('button', { name: '返回顶部' })).toBeVisible();
+  for (const language of ['zh', 'en'] as const) {
+    if (language === 'en') await page.locator('#language').click();
+    await expect(footer).toHaveAttribute('data-language', language);
+    await expect(footer.locator('.footer-social > span')).toHaveText(language === 'zh' ? '关注我们' : 'Follow Us');
+    await expect(footer.getByRole('link')).toHaveCount(links[language].length);
+    await expect(footer.locator('form, input, button, nav, img')).toHaveCount(0);
+    await expect(footer).not.toContainText(/订阅|关于我们|联系方式|隐私政策|法律声明|返回顶部|Subscribe|About Us|Copyright|Privacy Policy|Legal Notice|Back to top/i);
+
+    for (const [name, href] of links[language]) {
+      const link = footer.getByRole('link', { name, exact: true });
+      await expect(link).toHaveAttribute('href', href);
+      await expect(link).toHaveAttribute('target', '_blank');
+      await expect(link).toHaveAttribute('rel', 'noopener noreferrer');
+    }
+
+    for (const width of [1440, 800, 390, 320]) {
+      await page.setViewportSize({ width, height: 900 });
+      await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - innerWidth)).toBe(0);
+      for (const [name] of links[language]) {
+        const link = footer.getByRole('link', { name, exact: true });
+        await expect(link).toBeVisible();
+        const box = await link.boundingBox();
+        expect(box).not.toBeNull();
+        expect(box!.width).toBeGreaterThanOrEqual(44);
+        expect(box!.height).toBeGreaterThanOrEqual(44);
+        expect(box!.x).toBeGreaterThanOrEqual(0);
+        expect(box!.x + box!.width).toBeLessThanOrEqual(width);
+      }
+    }
   }
 
-  await footer.getByRole('textbox', { name: '邮箱地址' }).fill('kept@example.com');
-  await page.locator('#language').click();
-  await expect(footer.getByRole('textbox', { name: 'Email' })).toHaveValue('kept@example.com');
-  await expect(footer.getByRole('link', { name: 'Online Store' })).toHaveAttribute('href', 'https://www.shop.ufactory.cc/');
-  await expect(footer.getByRole('link', { name: 'YouTube' })).toBeVisible();
-  await expect(footer.getByRole('link', { name: '知乎' })).toHaveCount(0);
-  await footer.getByRole('button', { name: 'Back to top' }).focus();
-  await page.keyboard.press('Enter');
-  await expect.poll(() => page.evaluate(() => window.scrollY)).toBeLessThan(10);
+  await expect(footer).toHaveCSS('font-family', /FooterPoppins/);
   await page.locator('#page-examples').click();
-  await expect(footer.getByText('Subscribe to the latest updates.')).toBeVisible();
+  await expect(footer.locator('.footer-social > span')).toHaveText('Follow Us');
+  await page.locator('#language').click();
+  await expect(footer.locator('.footer-social > span')).toHaveText('关注我们');
 });
 
-test('subscription validates input and displays success and failure from the proxy', async ({ page }) => {
-  let requests = 0;
-  await page.route('**/api/subscribe', async route => {
-    requests++;
-    const data = route.request().postDataJSON() as { email: string; language: string };
-    expect(data).toEqual({ email: 'robot@example.com', language: 'zh' });
-    await route.fulfill({ status: requests === 1 ? 502 : 200, json: requests === 1 ? { ok: false, error: 'upstream' } : { ok: true } });
-  });
+test('social links support keyboard navigation and activation in both languages', async ({ page }) => {
+  await page.context().route('https://github.com/xArm-Developer', route => route.fulfill({ status: 200, body: 'GitHub' }));
   await page.goto('/');
   const footer = page.locator('#site-footer');
-  const input = footer.getByRole('textbox', { name: '邮箱地址' });
-  await input.fill('invalid');
-  await footer.getByRole('button', { name: '订阅' }).click();
-  await expect(footer.getByRole('status')).toHaveText('请输入有效的邮箱地址。');
-  await expect(input).toHaveAttribute('aria-invalid', 'true');
-  expect(requests).toBe(0);
 
-  await input.fill('robot@example.com');
-  await footer.getByRole('button', { name: '订阅' }).click();
-  await expect(footer.getByRole('status')).toHaveText('订阅失败，请稍后重试。');
-  await expect(input).toHaveValue('robot@example.com');
-  await footer.getByRole('button', { name: '订阅' }).click();
-  await expect(footer.getByRole('status')).toHaveText('订阅成功。');
-  await expect(input).toHaveValue('');
-  expect(requests).toBe(2);
+  for (const language of ['zh', 'en'] as const) {
+    if (language === 'en') await page.locator('#language').click();
+    const socialLinks = footer.getByRole('link');
+    await socialLinks.first().focus();
+    for (let index = 0; index < links[language].length; index++) {
+      await expect(socialLinks.nth(index)).toBeFocused();
+      if (index < links[language].length - 1) await page.keyboard.press('Tab');
+    }
+    const popupPromise = page.waitForEvent('popup');
+    await page.keyboard.press('Enter');
+    const popup = await popupPromise;
+    await popup.waitForLoadState('domcontentloaded');
+    expect(popup.url()).toBe('https://github.com/xArm-Developer');
+    await popup.close();
+  }
 });

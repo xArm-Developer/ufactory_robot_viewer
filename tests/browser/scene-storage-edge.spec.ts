@@ -150,7 +150,8 @@ test('hiding a page immediately flushes pending continuous motion', async ({ pag
     document.dispatchEvent(new Event('visibilitychange'));
   });
   const angle = Number(await page.locator('#stage-joint-0').innerText());
-  expect((await saved(page)).joints[0] * 180 / Math.PI).toBeCloseTo(angle, 2);
+  // Telemetry rounds to 0.01°, including floating-point halfway cases.
+  expect(Math.abs((await saved(page)).joints[0] * 180 / Math.PI - angle)).toBeLessThanOrEqual(0.005 + 1e-9);
   await page.reload();
   await ready(page);
   expect(Number(await page.locator('#stage-joint-0').innerText())).toBeCloseTo(angle, 2);

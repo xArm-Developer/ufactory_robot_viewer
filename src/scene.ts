@@ -27,6 +27,7 @@ import {
 } from './collision';
 import { CollisionHighlighter } from './collision-highlight';
 import { checkAbort, ModelCache, type ModelLease } from './model-cache';
+import { adjustArmMaterials, createArmEnvironment } from './arm-materials';
 import modelAssets from 'virtual:model-assets';
 
 export interface AssemblyAccessoriesConfig {
@@ -78,47 +79,6 @@ function enableShadows(root: THREE.Object3D): void {
       object.receiveShadow = true;
     }
   });
-}
-
-function adjustLite6Materials(robot: URDFRobot, ownedMaterials: Set<THREE.Material>): void {
-  // Part names are local to each link's visual GLB. Link 6 contains the metal flange.
-  const parts: Record<string, { white: readonly string[]; cover?: string }> = {
-    link_base: { white: ['part_0'], cover: 'part_1' },
-    link1: { white: ['part_0', 'part_1'], cover: 'part_2' },
-    link2: { white: ['part_0'], cover: 'part_1' },
-    link3: { white: ['part_0', 'part_1'] },
-    link4: { white: ['part_0', 'part_1'], cover: 'part_2' },
-    link5: { white: ['part_0', 'part_1'] },
-  };
-
-  for (const [linkName, { white, cover }] of Object.entries(parts)) {
-    const link = robot.links[linkName];
-    if (!link) continue;
-    for (const visual of link.children) {
-      if (!(visual as THREE.Object3D & { isURDFVisual?: boolean }).isURDFVisual) continue;
-      visual.traverse(object => {
-        if (!(object instanceof THREE.Mesh)) return;
-        const isWhite = white.includes(object.name);
-        const isCover = object.name === cover;
-        if (!isWhite && !isCover) return;
-        const copies = (Array.isArray(object.material) ? object.material : [object.material]).map(material => {
-          const copy = material.clone();
-          ownedMaterials.add(copy);
-          return copy;
-        });
-        object.material = Array.isArray(object.material) ? copies : copies[0];
-        for (const material of copies) {
-          if (!(material instanceof THREE.MeshStandardMaterial)) continue;
-          if (isWhite) {
-            material.roughness = 0.3;
-            material.metalness = 0;
-          } else {
-            material.color.setRGB(0.55, 0.55, 0.55);
-          }
-        }
-      });
-    }
-  }
 }
 
 /** A small studio reflection map used only by polished connector shells. */
@@ -345,6 +305,7 @@ export class RobotScene {
   private armTemplates = new Map<string, URDFRobot>();
   private accessoryAssets: ModelLease[] = [];
   private ownedArmMaterials = new Set<THREE.Material>();
+  private armEnvironment = createArmEnvironment();
   private connectorEnvironment = createConnectorEnvironment();
   private railDragGeometry?: THREE.BufferGeometry;
   private resizeObserver: ResizeObserver;
@@ -520,6 +481,7 @@ export class RobotScene {
     this.modelCache.dispose();
     this.armTemplates.clear();
     this.draco.dispose();
+    this.armEnvironment.dispose();
     this.connectorEnvironment.dispose();
     this.renderer.dispose();
     this.renderer.domElement.remove();
@@ -606,7 +568,7 @@ export class RobotScene {
         });
         this.armTemplates.set(spec.id, structure);
       }
-      if (spec.id === 'lite6') adjustLite6Materials(nextRobot, this.ownedArmMaterials);
+      adjustArmMaterials(nextRobot, spec.id, this.ownedArmMaterials, this.armEnvironment);
       adjustConnectorMaterials(nextRobot, spec.id, this.ownedArmMaterials, this.connectorEnvironment);
 
       this.robot = nextRobot;
