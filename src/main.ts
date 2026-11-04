@@ -492,7 +492,7 @@ function snapshotAssembly(): AssemblySnapshot {
 }
 const linkAssembly = snapshotAssembly();
 
-let language: Language = 'zh';
+let language: Language = 'en';
 type SceneNotice = 'savedSceneInvalid' | 'savedSceneCollision' | 'linkSceneCollision' | 'storageUnavailable';
 const sceneNotices = new Set<SceneNotice>();
 function renderSceneNotices() {
