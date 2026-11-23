@@ -4,6 +4,8 @@
 
 基于 Three.js 与 MuJoCo WebAssembly 的 UFACTORY 机械臂及配件三维交互查看器与浏览器端物理仿真示例。
 
+![UFACTORY Robot Viewer 界面，展示安装在直线滑轨上的 xArm 7 机械臂、Gripper G2 夹爪、实时位姿和笛卡尔运动控制面板](./docs/viewer-overview.png)
+
 ## 设计文档
 
 机型与配件兼容关系、TCP 偏移、运动控制、碰撞检测、装箱物理仿真及离线管线详见 [docs/design_zh.md](./docs/design_zh.md)（[English](./docs/design.md)）。
