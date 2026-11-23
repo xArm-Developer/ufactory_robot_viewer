@@ -4,6 +4,8 @@ English | [简体中文](./README_zh.md)
 
 An interactive 3D viewer and in-browser physics simulation showcase for UFACTORY robotic arms and accessories, built with Three.js and MuJoCo WebAssembly.
 
+![UFACTORY Robot Viewer showing an xArm 7 with a Gripper G2 on a linear rail, alongside live pose data and Cartesian motion controls](./docs/viewer-overview.png)
+
 ## Design Documentation
 
 See [docs/design.md](./docs/design.md) ([中文](./docs/design_zh.md)) for supported robots & accessories, TCP offsets, motion control, collision detection, the packing physics simulation, and offline asset pipelines.

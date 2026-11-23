@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 const modelPath = fileURLToPath(new URL('../public/models/al0700/model.glb', import.meta.url));
 const binSha256 = 'edcf46c73495995b816a99417f981d5c56199389db13625dea6e7a898ff9c455';
 const structureSha256 = '4e114aa2da11a96468a56363e164ac1b2d08a907256a2d06975035917756175b';
-const blackParts = new Set([0, 3, 5, 7, 8, 11, 17, 18, 19, 22, 35, 43, 44, 45]);
+const blackParts = new Set([0, 3, 5, 7, 8, 11, 17, 18, 19, 22, 35, 36, 43, 44, 45]);
 const darkGrayParts = new Set([23, 24, 34, 39, 42]);
 const palette = {
   black: { color: [0.015, 0.017, 0.019, 1], metalness: 0.28, roughness: 0.72 },
@@ -40,7 +40,7 @@ function recolor(bytes) {
   const { materials, ...structure } = gltf;
   requireShape(sha256(JSON.stringify(structure)) === structureSha256, 'nodes, transforms, meshes, or accessors changed');
   requireShape(Array.isArray(materials) && materials.length === 51, 'expected 51 materials');
-  requireShape(blackParts.size === 14 && darkGrayParts.size === 5 &&
+  requireShape(blackParts.size === 15 && darkGrayParts.size === 5 &&
     [...blackParts].every(index => index >= 0 && index < 51 && !darkGrayParts.has(index)) &&
     [...darkGrayParts].every(index => index >= 0 && index < 51), 'invalid palette index list');
 
